@@ -6,6 +6,7 @@ import flixel.FlxState;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
+import audio.SongAudio;
 import chart.ChartLoader;
 import chart.FNFChart;
 import input.ArrowInput;
@@ -14,6 +15,7 @@ import notes.Judgment;
 import notes.Note;
 import notes.NoteDetector;
 import notes.TimingWindows;
+import ui.HealthBar;
 
 private typedef ChartEntry =
 {
@@ -30,10 +32,19 @@ class PlayState extends FlxState
 	static inline var SONG_CHART_PATH:String = "assets/songs/emma/charts/hard.json";
 	static inline var SONG_META_PATH:String = "assets/songs/emma/meta.json";
 	static inline var SONG_INST_PATH:String = "assets/songs/emma/song/Inst.ogg";
+	static inline var SONG_OPPONENT_VOICES_PATH:String = "assets/songs/emma/song/Voices-emma.ogg";
+	static inline var SONG_PLAYER_VOICES_PATH:String = "assets/songs/emma/song/Voices-math.ogg";
+	static inline var START_HEALTH:Float = 0.5;
+	static inline var SICK_HEAL:Float = 0.035;
+	static inline var GOOD_HEAL:Float = 0.015;
+	static inline var MISS_DAMAGE:Float = 0.05;
 
 	var chartData:FNFChart;
+	var songAudio:SongAudio;
 	var songTime:Float = 0;
 	var elapsedSongTime:Float = 0;
+	var health:Float = START_HEALTH;
+	var gameOverTriggered:Bool = false;
 	var loadError:String = null;
 	var arrows:ArrowInput;
 	var detector:NoteDetector;
@@ -41,6 +52,7 @@ class PlayState extends FlxState
 	var chart:Array<ChartEntry> = [];
 	var judgmentText:FlxText;
 	var timerText:FlxText;
+	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
 
 	override public function create():Void
@@ -67,8 +79,8 @@ class PlayState extends FlxState
 
 	override public function destroy():Void
 	{
-		if (FlxG.sound.music != null)
-			FlxG.sound.music.stop();
+		if (songAudio != null)
+			songAudio.destroy();
 
 		super.destroy();
 	}
@@ -77,10 +89,13 @@ class PlayState extends FlxState
 	{
 		super.update(elapsed);
 
+		if (songAudio != null)
+			songAudio.update();
+
 		elapsedSongTime += elapsed * 1000;
 
-		if (FlxG.sound.music != null && FlxG.sound.music.playing)
-			songTime = FlxG.sound.music.time + (chartData == null ? 0 : chartData.offset);
+		if (songAudio != null && songAudio.isPlaying())
+			songTime = songAudio.getTime() + (chartData == null ? 0 : chartData.offset);
 		else
 			songTime = elapsedSongTime + (chartData == null ? 0 : chartData.offset);
 
@@ -89,16 +104,33 @@ class PlayState extends FlxState
 			var result = detector.hitNote(notes, direction, songTime);
 
 			if (result != null)
+			{
+				applyJudgment(result.judgment);
 				showJudgment(result.judgment, result.offset);
+			}
 		}
 
 		for (note in detector.collectMissedNotes(notes, songTime))
+		{
+			applyJudgment(Judgment.MISS);
 			showJudgment(Judgment.MISS, songTime - note.time);
+		}
 
 		updateNotePositions();
 		updateFeedback(elapsed);
 
 		timerText.text = '${Std.int(songTime / 10) / 100} s';
+
+		if (health <= 0 && !gameOverTriggered)
+		{
+			gameOverTriggered = true;
+
+			if (songAudio != null)
+				songAudio.stop();
+
+			FlxG.switchState(GameOverState.new);
+			return;
+		}
 
 		if (FlxG.keys.justPressed.ESCAPE)
 			FlxG.switchState(MainMenuState.new);
@@ -139,7 +171,10 @@ class PlayState extends FlxState
 	{
 		chartData = ChartLoader.loadSong(SONG_CHART_PATH, SONG_META_PATH);
 		buildChart();
-		FlxG.sound.playMusic(SONG_INST_PATH, 1.0, false);
+
+		songAudio = new SongAudio();
+		songAudio.load(SONG_INST_PATH, SONG_OPPONENT_VOICES_PATH, SONG_PLAYER_VOICES_PATH);
+		songAudio.play();
 	}
 
 	function buildChart():Void
@@ -173,6 +208,10 @@ class PlayState extends FlxState
 		timerText.alignment = FlxTextAlign.RIGHT;
 		timerText.color = FlxColor.GRAY;
 		add(timerText);
+
+		healthBar = new HealthBar(FlxG.width * 0.5 - HealthBar.BAR_WIDTH * 0.5, 66);
+		add(healthBar);
+		healthBar.setHealth(health);
 
 		judgmentText = new FlxText(0, 100, FlxG.width, "", 44);
 		judgmentText.alignment = FlxTextAlign.CENTER;
@@ -235,6 +274,21 @@ class PlayState extends FlxState
 
 		feedbackTime -= elapsed;
 		judgmentText.alpha = Math.max(0, Math.min(1, feedbackTime * 2));
+	}
+
+	function applyJudgment(judgment:Judgment):Void
+	{
+		if (judgment == Judgment.SICK)
+			health += SICK_HEAL;
+		else if (judgment == Judgment.GOOD)
+			health += GOOD_HEAL;
+		else if (judgment == Judgment.MISS)
+			health -= MISS_DAMAGE;
+
+		health = Math.max(0, Math.min(1, health));
+
+		if (healthBar != null)
+			healthBar.setHealth(health);
 	}
 
 	function showJudgment(judgment:Judgment, offset:Float):Void
