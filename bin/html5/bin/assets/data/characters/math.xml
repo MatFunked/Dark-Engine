@@ -1,0 +1,8 @@
+<!DOCTYPE codename-engine-character>
+<character x="100" antialiasing="false" flipX="true" camx="75" camy="-20" isPlayer="true" icon="math">
+	<anim name="idle" anim="math idle" loop="true"/>
+	<anim name="singDOWN" anim="math down" loop="true"/>
+	<anim name="singRIGHT" anim="math right" loop="true"/>
+	<anim name="singLEFT" anim="math left" loop="true"/>
+	<anim name="singUP" anim="math up" loop="true"/>
+</character>

@@ -1,0 +1,8 @@
+<!DOCTYPE codename-engine-character>
+<character x="-150" flipX="true" camx="90" camy="30" isPlayer="true" icon="bf" color="#000000">
+	<anim name="idle" anim="bfpapel idle" fps="12" loop="true"/>
+	<anim name="singDOWN" anim="bfpapel down" fps="12" loop="true"/>
+	<anim name="singRIGHT" anim="bfpapel right" fps="12" loop="true"/>
+	<anim name="singLEFT" anim="bfpapel left" fps="12" loop="true"/>
+	<anim name="singUP" anim="bfpapel up" fps="12" loop="true"/>
+</character>

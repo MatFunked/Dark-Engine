@@ -19,6 +19,7 @@ class SparrowCharacter extends FlxSprite
 	static inline var SING_HOLD_TIME:Float = 0.36;
 
 	public var characterName(default, null):String;
+	public var isPlayer(default, null):Bool;
 	public var isPlaceholder(default, null):Bool = false;
 
 	var animations:Map<String, CharacterAnimation> = [];
@@ -29,7 +30,8 @@ class SparrowCharacter extends FlxSprite
 	{
 		super();
 		this.characterName = characterName;
-		loadCharacter(characterName, isPlayer);
+		this.isPlayer = isPlayer;
+		loadCharacter(characterName);
 	}
 
 	public function sing(direction:NoteDirection):Void
@@ -40,7 +42,12 @@ class SparrowCharacter extends FlxSprite
 		var name = singAnimationName(direction);
 
 		if (!animation.exists(name))
-			return;
+		{
+			name = baseSingAnimationName(direction);
+
+			if (!animation.exists(name))
+				return;
+		}
 
 		animation.play(name, true);
 		singTimer = SING_HOLD_TIME;
@@ -64,13 +71,13 @@ class SparrowCharacter extends FlxSprite
 		y = topY;
 	}
 
-	function loadCharacter(characterName:String, isPlayer:Bool):Void
+	function loadCharacter(characterName:String):Void
 	{
 		var metadata = loadMetadata(characterName);
 		var flipValue = metadata == null ? null : metadata.get("flipX");
 		var antialiasingValue = metadata == null ? null : metadata.get("antialiasing");
 
-		flipX = flipValue == "true";
+		flipX = metadata == null ? isPlayer : flipValue == "true";
 
 		if (antialiasingValue == "false")
 			antialiasing = false;
@@ -86,7 +93,7 @@ class SparrowCharacter extends FlxSprite
 		{
 			isPlaceholder = true;
 			FlxG.log.warn('Missing character atlas for "$characterName"; using placeholder');
-			makePlaceholder(isPlayer);
+			makePlaceholder();
 			return;
 		}
 
@@ -193,12 +200,26 @@ class SparrowCharacter extends FlxSprite
 			animation.play(idleAnimation);
 	}
 
-	function makePlaceholder(isPlayer:Bool):Void
+	function makePlaceholder():Void
 	{
 		makeGraphic(180, 360, isPlayer ? 0xFF334477 : 0xFF553344);
 	}
 
-	static function singAnimationName(direction:NoteDirection):String
+	function singAnimationName(direction:NoteDirection):String
+	{
+		if (!flipX)
+			return baseSingAnimationName(direction);
+
+		return switch (direction)
+		{
+			case LEFT: "singRIGHT";
+			case DOWN: "singDOWN";
+			case UP: "singUP";
+			case RIGHT: "singLEFT";
+		}
+	}
+
+	static function baseSingAnimationName(direction:NoteDirection):String
 	{
 		return switch (direction)
 		{

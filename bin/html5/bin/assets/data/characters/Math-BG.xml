@@ -1,0 +1,4 @@
+<!DOCTYPE codename-engine-character>
+<character x="20" sprite="mathbg" icon="Math-BG">
+	<anim name="idle" anim="mathbg idle" x="-3" fps="1" loop="true"/>
+</character>
