@@ -6,6 +6,7 @@ import flixel.FlxState;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
+import openfl.utils.Assets;
 import audio.SongAudio;
 import chart.ChartLoader;
 import chart.FNFChart;
@@ -28,12 +29,6 @@ class PlayState extends FlxState
 	static inline var RECEPTOR_Y:Float = 560;
 	static inline var LANE_WIDTH:Float = 110;
 	static inline var NOTE_SPEED:Float = 0.35;
-	static inline var SONG_DIFFICULTY:String = "HARD";
-	static inline var SONG_CHART_PATH:String = "assets/songs/emma/charts/hard.json";
-	static inline var SONG_META_PATH:String = "assets/songs/emma/meta.json";
-	static inline var SONG_INST_PATH:String = "assets/songs/emma/song/Inst.ogg";
-	static inline var SONG_OPPONENT_VOICES_PATH:String = "assets/songs/emma/song/Voices-math.ogg";
-	static inline var SONG_PLAYER_VOICES_PATH:String = "assets/songs/emma/song/Voices-emma.ogg";
 	static inline var START_HEALTH:Float = 0.5;
 	static inline var SICK_HEAL:Float = 0.035;
 	static inline var GOOD_HEAL:Float = 0.015;
@@ -42,6 +37,9 @@ class PlayState extends FlxState
 	static inline var RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 	static inline var PLAYER_RECEPTOR_COLOR:Int = 0xFF2A2A45;
 	static inline var OPPONENT_RECEPTOR_COLOR:Int = 0xFF1E1E30;
+
+	public var songFolder(default, null):String;
+	public var songDifficulty(default, null):String;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
@@ -63,6 +61,13 @@ class PlayState extends FlxState
 	var timerText:FlxText;
 	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
+
+	public function new(?songFolder:String = "emma", ?difficulty:String = "hard")
+	{
+		super();
+		this.songFolder = songFolder;
+		this.songDifficulty = difficulty.toLowerCase();
+	}
 
 	override public function create():Void
 	{
@@ -143,14 +148,31 @@ class PlayState extends FlxState
 			if (songAudio != null)
 				songAudio.stop();
 
-			FlxG.switchState(GameOverState.new);
+			FlxG.switchState(new GameOverState(songFolder, songDifficulty));
 			return;
 		}
 
 		if (FlxG.keys.justPressed.ESCAPE)
-			FlxG.switchState(MainMenuState.new);
+			openSubState(new PauseSubState(this));
 		else if (FlxG.keys.justPressed.R)
-			FlxG.resetState();
+			restartLevel();
+	}
+
+	public function pauseSong():Void
+	{
+		if (songAudio != null)
+			songAudio.pause();
+	}
+
+	public function resumeSong():Void
+	{
+		if (songAudio != null)
+			songAudio.resume();
+	}
+
+	function restartLevel():Void
+	{
+		FlxG.switchState(new PlayState(songFolder, songDifficulty));
 	}
 
 	function buildLanes():Void
@@ -190,11 +212,30 @@ class PlayState extends FlxState
 
 	function loadLevel():Void
 	{
-		chartData = ChartLoader.loadSong(SONG_CHART_PATH, SONG_META_PATH);
+		var chartPath = 'assets/songs/$songFolder/charts/$songDifficulty.json';
+		var metaPath = 'assets/songs/$songFolder/meta.json';
+		chartData = ChartLoader.loadSong(chartPath, metaPath);
 		buildChart();
 
+		var audioPath = 'assets/songs/$songFolder/song';
+		var singleVoicesPath = '${audioPath}/Voices.ogg';
 		songAudio = new SongAudio();
-		songAudio.load(SONG_INST_PATH, SONG_OPPONENT_VOICES_PATH, SONG_PLAYER_VOICES_PATH);
+
+		if (Assets.exists(singleVoicesPath))
+		{
+			songAudio.loadSingleVoices('${audioPath}/Inst.ogg', singleVoicesPath);
+		}
+		else
+		{
+			var opponentSuffix = chartData.opponentVocalsSuffix;
+			var playerSuffix = chartData.playerVocalsSuffix;
+
+			if (opponentSuffix == "" || playerSuffix == "")
+				throw 'Voice tracks not found for $songFolder';
+
+			songAudio.load('${audioPath}/Inst.ogg', '${audioPath}/Voices${opponentSuffix}.ogg', '${audioPath}/Voices${playerSuffix}.ogg');
+		}
+
 		songAudio.play();
 	}
 
@@ -222,7 +263,7 @@ class PlayState extends FlxState
 
 	function buildUi():Void
 	{
-		var titleText = chartData == null ? "DARK ENGINE" : '${chartData.songName.toUpperCase()} - $SONG_DIFFICULTY';
+		var titleText = chartData == null ? "DARK ENGINE" : '${chartData.songName.toUpperCase()} - ${songDifficulty.toUpperCase()}';
 		var title = new FlxText(0, 24, FlxG.width, titleText, 28);
 		title.alignment = FlxTextAlign.CENTER;
 		title.color = FlxColor.WHITE;
@@ -266,7 +307,7 @@ class PlayState extends FlxState
 			add(errorText);
 		}
 
-		var hint = new FlxText(0, FlxG.height - 32, FlxG.width, "ESC: MENU    R: RESTART", 14);
+		var hint = new FlxText(0, FlxG.height - 32, FlxG.width, "ESC: PAUSE    R: RESTART", 14);
 		hint.alignment = FlxTextAlign.CENTER;
 		hint.color = FlxColor.GRAY;
 		add(hint);

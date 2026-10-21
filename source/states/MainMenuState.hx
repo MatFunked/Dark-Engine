@@ -31,6 +31,6 @@ class MainMenuState extends FlxState
 		super.update(elapsed);
 
 		if (FlxG.keys.justPressed.ENTER || FlxG.keys.justPressed.SPACE)
-			FlxG.switchState(PlayState.new);
+			FlxG.switchState(new FreeplayState());
 	}
 }

@@ -8,6 +8,16 @@ import flixel.util.FlxColor;
 
 class GameOverState extends FlxState
 {
+	public var songFolder(default, null):String;
+	public var songDifficulty(default, null):String;
+
+	public function new(?songFolder:String = "emma", ?difficulty:String = "hard")
+	{
+		super();
+		this.songFolder = songFolder;
+		this.songDifficulty = difficulty.toLowerCase();
+	}
+
 	override public function create():Void
 	{
 		super.create();
@@ -34,8 +44,8 @@ class GameOverState extends FlxState
 		super.update(elapsed);
 
 		if (FlxG.keys.justPressed.ENTER || FlxG.keys.justPressed.R)
-			FlxG.switchState(PlayState.new);
+			FlxG.switchState(new PlayState(songFolder, songDifficulty));
 		else if (FlxG.keys.justPressed.ESCAPE)
-			FlxG.switchState(MainMenuState.new);
+			FlxG.switchState(new MainMenuState());
 	}
 }

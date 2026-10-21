@@ -27,17 +27,31 @@ class SongAudio
 			throw "Could not load song audio";
 	}
 
+	public function loadSingleVoices(instPath:String, voicesPath:String):Void
+	{
+		inst = FlxG.sound.load(instPath, INST_VOLUME, false, null, false, false);
+		opponentVoices = null;
+		playerVoices = FlxG.sound.load(voicesPath, VOICE_VOLUME, false, null, false, false);
+
+		if (inst == null || playerVoices == null)
+			throw "Could not load song audio";
+	}
+
 	public function play():Void
 	{
-		if (inst == null || opponentVoices == null || playerVoices == null)
+		if (inst == null || playerVoices == null)
 			return;
 
 		inst.play();
-		opponentVoices.play();
 		playerVoices.play();
-
-		opponentVoices.time = inst.time;
 		playerVoices.time = inst.time;
+
+		if (opponentVoices != null)
+		{
+			opponentVoices.play();
+			opponentVoices.time = inst.time;
+		}
+
 		started = true;
 	}
 
@@ -55,6 +69,20 @@ class SongAudio
 			return;
 
 		syncTo(inst.time);
+	}
+
+	public function pause():Void
+	{
+		pauseSound(inst);
+		pauseSound(opponentVoices);
+		pauseSound(playerVoices);
+	}
+
+	public function resume():Void
+	{
+		resumeSound(inst);
+		resumeSound(opponentVoices);
+		resumeSound(playerVoices);
 	}
 
 	public function stop():Void
@@ -93,6 +121,18 @@ class SongAudio
 
 		if (Math.abs(track.time - time) > syncThreshold)
 			track.time = time;
+	}
+
+	inline function pauseSound(sound:FlxSound):Void
+	{
+		if (sound != null && sound.playing)
+			sound.pause();
+	}
+
+	inline function resumeSound(sound:FlxSound):Void
+	{
+		if (sound != null)
+			sound.resume();
 	}
 
 	inline function stopSound(sound:FlxSound):Void

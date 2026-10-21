@@ -11,6 +11,8 @@ class FNFChart
 	public var stage:String = "stage";
 	public var needsVoices:Bool = true;
 	public var offset:Float = 0;
+	public var playerVocalsSuffix:String = "";
+	public var opponentVocalsSuffix:String = "";
 	public var sections:Array<ChartSection> = [];
 	public var bpmChanges:Array<BpmChange> = [];
 	public var notes:Array<ChartNote> = [];

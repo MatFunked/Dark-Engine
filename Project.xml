@@ -12,7 +12,7 @@
 
 	<source path="source" />
 
-	<assets path="mods/Emma's Road - TAT UST/songs/emma" rename="assets/songs/emma" />
+	<assets path="mods/Emma's Road - TAT UST/songs" rename="assets/songs" />
 
 	<haxelib name="flixel" />
 

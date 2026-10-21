@@ -176,6 +176,13 @@ class FNFChartParser
 
 			var position = stringValue(Reflect.field(strumLine, "position"), "").toLowerCase();
 			var isPlayer = position == "bf" || position == "boyfriend" || position == "player" || position == "both";
+			var vocalsSuffix = stringValue(Reflect.field(strumLine, "vocalsSuffix"), "");
+
+			if (isPlayer)
+				chart.playerVocalsSuffix = vocalsSuffix;
+			else
+				chart.opponentVocalsSuffix = vocalsSuffix;
+
 			var rawNotes:Dynamic = Reflect.field(strumLine, "notes");
 
 			if (!Std.isOfType(rawNotes, Array))
