@@ -32,16 +32,16 @@ class PlayState extends FlxState
 	static inline var SONG_CHART_PATH:String = "assets/songs/emma/charts/hard.json";
 	static inline var SONG_META_PATH:String = "assets/songs/emma/meta.json";
 	static inline var SONG_INST_PATH:String = "assets/songs/emma/song/Inst.ogg";
-	static inline var SONG_OPPONENT_VOICES_PATH:String = "assets/songs/emma/song/Voices-emma.ogg";
-	static inline var SONG_PLAYER_VOICES_PATH:String = "assets/songs/emma/song/Voices-math.ogg";
+	static inline var SONG_OPPONENT_VOICES_PATH:String = "assets/songs/emma/song/Voices-math.ogg";
+	static inline var SONG_PLAYER_VOICES_PATH:String = "assets/songs/emma/song/Voices-emma.ogg";
 	static inline var START_HEALTH:Float = 0.5;
 	static inline var SICK_HEAL:Float = 0.035;
 	static inline var GOOD_HEAL:Float = 0.015;
 	static inline var MISS_DAMAGE:Float = 0.05;
 	static inline var RECEPTOR_FLASH_TIME:Float = 0.12;
+	static inline var RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 	static inline var PLAYER_RECEPTOR_COLOR:Int = 0xFF2A2A45;
 	static inline var OPPONENT_RECEPTOR_COLOR:Int = 0xFF1E1E30;
-	static inline var OPPONENT_RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
@@ -55,6 +55,8 @@ class PlayState extends FlxState
 	var notes:Array<Note> = [];
 	var chart:Array<ChartEntry> = [];
 	var opponentEntries:Array<ChartEntry> = [];
+	var playerReceptors:Array<FlxSprite> = [null, null, null, null];
+	var playerFlashTimers:Array<Float> = [0, 0, 0, 0];
 	var opponentReceptors:Array<FlxSprite> = [null, null, null, null];
 	var opponentFlashTimers:Array<Float> = [0, 0, 0, 0];
 	var judgmentText:FlxText;
@@ -106,7 +108,7 @@ class PlayState extends FlxState
 		else
 			songTime = elapsedSongTime + (chartData == null ? 0 : chartData.offset);
 
-		updateOpponentAutoPlay(elapsed);
+		updateOpponentAutoPlay();
 
 		for (direction in arrows.justPressedDirections())
 		{
@@ -116,6 +118,9 @@ class PlayState extends FlxState
 			{
 				applyJudgment(result.judgment);
 				showJudgment(result.judgment, result.offset);
+
+				if (result.judgment != Judgment.MISS)
+					flashPlayerReceptor(direction);
 			}
 		}
 
@@ -126,6 +131,7 @@ class PlayState extends FlxState
 		}
 
 		updateNotePositions();
+		updateReceptorFlashes(elapsed);
 		updateFeedback(elapsed);
 
 		timerText.text = '${Std.int(songTime / 10) / 100} s';
@@ -164,7 +170,9 @@ class PlayState extends FlxState
 				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
 				add(receptor);
 
-				if (!isPlayer)
+				if (isPlayer)
+					playerReceptors[cast(direction, Int)] = receptor;
+				else
 					opponentReceptors[cast(direction, Int)] = receptor;
 
 				var label = new FlxText(x - 50, RECEPTOR_Y + 42, 100, labels[i], 14);
@@ -264,7 +272,7 @@ class PlayState extends FlxState
 		add(hint);
 	}
 
-	function updateOpponentAutoPlay(elapsed:Float):Void
+	function updateOpponentAutoPlay():Void
 	{
 		for (entry in opponentEntries)
 		{
@@ -275,29 +283,48 @@ class PlayState extends FlxState
 			entry.sprite.visible = false;
 			flashOpponentReceptor(entry.note.direction);
 		}
+	}
 
-		for (i in 0...opponentFlashTimers.length)
-		{
-			if (opponentFlashTimers[i] <= 0)
-				continue;
-
-			opponentFlashTimers[i] -= elapsed;
-
-			if (opponentFlashTimers[i] <= 0 && opponentReceptors[i] != null)
-				opponentReceptors[i].color = OPPONENT_RECEPTOR_COLOR;
-		}
+	function flashPlayerReceptor(direction:NoteDirection):Void
+	{
+		flashReceptor(playerReceptors, playerFlashTimers, direction);
 	}
 
 	function flashOpponentReceptor(direction:NoteDirection):Void
 	{
+		flashReceptor(opponentReceptors, opponentFlashTimers, direction);
+	}
+
+	function flashReceptor(receptors:Array<FlxSprite>, timers:Array<Float>, direction:NoteDirection):Void
+	{
 		var index = cast(direction, Int);
-		var receptor = opponentReceptors[index];
+		var receptor = receptors[index];
 
 		if (receptor == null)
 			return;
 
-		receptor.color = OPPONENT_RECEPTOR_FLASH_COLOR;
-		opponentFlashTimers[index] = RECEPTOR_FLASH_TIME;
+		receptor.color = RECEPTOR_FLASH_COLOR;
+		timers[index] = RECEPTOR_FLASH_TIME;
+	}
+
+	function updateReceptorFlashes(elapsed:Float):Void
+	{
+		updateReceptorFlashGroup(playerReceptors, playerFlashTimers, PLAYER_RECEPTOR_COLOR, elapsed);
+		updateReceptorFlashGroup(opponentReceptors, opponentFlashTimers, OPPONENT_RECEPTOR_COLOR, elapsed);
+	}
+
+	function updateReceptorFlashGroup(receptors:Array<FlxSprite>, timers:Array<Float>, baseColor:Int, elapsed:Float):Void
+	{
+		for (i in 0...timers.length)
+		{
+			if (timers[i] <= 0)
+				continue;
+
+			timers[i] -= elapsed;
+
+			if (timers[i] <= 0 && receptors[i] != null)
+				receptors[i].color = baseColor;
+		}
 	}
 
 	function updateNotePositions():Void
