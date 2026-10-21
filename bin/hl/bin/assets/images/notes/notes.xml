@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAtlas imagePath="notes.png">
+	<SubTexture name="noteLEFT0000" x="0" y="0" width="64" height="64" />
+	<SubTexture name="noteDOWN0000" x="64" y="0" width="64" height="64" />
+	<SubTexture name="noteUP0000" x="128" y="0" width="64" height="64" />
+	<SubTexture name="noteRIGHT0000" x="192" y="0" width="64" height="64" />
+</TextureAtlas>

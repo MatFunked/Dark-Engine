@@ -100,6 +100,20 @@ import sys.FileSystem;
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_meta_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_song_inst_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_song_voices_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_bfpapel_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_bfpapel_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_emma_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_emma_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_math_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_math_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_mathbg_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_mathbg_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_bfpapel_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_emma_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_math_bg_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_math_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_notes_notes_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_notes_notes_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_sounds_beep_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_sounds_flixel_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_fonts_nokiafc22_ttf extends null { }

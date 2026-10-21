@@ -53,6 +53,8 @@ class FNFChartParser
 		chart.speed = numberValue(Reflect.field(songData, "speed"), 1);
 		chart.player1 = stringValue(Reflect.field(songData, "player1"), "bf");
 		chart.player2 = stringValue(Reflect.field(songData, "player2"), "dad");
+		chart.playerCharacter = chart.player1;
+		chart.opponentCharacter = chart.player2;
 		chart.gfVersion = stringValue(Reflect.field(songData, "gfVersion"), "gf");
 		chart.stage = stringValue(Reflect.field(songData, "stage"), "stage");
 		chart.needsVoices = boolValue(Reflect.field(songData, "needsVoices"), true);
@@ -176,12 +178,30 @@ class FNFChartParser
 
 			var position = stringValue(Reflect.field(strumLine, "position"), "").toLowerCase();
 			var isPlayer = position == "bf" || position == "boyfriend" || position == "player" || position == "both";
+			var isOpponent = position == "dad" || position == "opponent";
 			var vocalsSuffix = stringValue(Reflect.field(strumLine, "vocalsSuffix"), "");
 
 			if (isPlayer)
 				chart.playerVocalsSuffix = vocalsSuffix;
-			else
+			else if (isOpponent)
 				chart.opponentVocalsSuffix = vocalsSuffix;
+
+			var rawCharacters:Dynamic = Reflect.field(strumLine, "characters");
+
+			if (Std.isOfType(rawCharacters, Array))
+			{
+				var characters:Array<Dynamic> = cast rawCharacters;
+
+				if (characters.length > 0)
+				{
+					var character = Std.string(characters[0]);
+
+					if (isPlayer)
+						chart.playerCharacter = character;
+					else if (isOpponent)
+						chart.opponentCharacter = character;
+				}
+			}
 
 			var rawNotes:Dynamic = Reflect.field(strumLine, "notes");
 

@@ -13,6 +13,9 @@
 	<source path="source" />
 
 	<assets path="mods/Emma's Road - TAT UST/songs" rename="assets/songs" />
+	<assets path="mods/Emma's Road - TAT UST/images/characters" rename="assets/images/characters" />
+	<assets path="mods/Emma's Road - TAT UST/data/characters" rename="assets/data/characters" />
+	<assets path="assets/images/notes" rename="assets/images/notes" />
 
 	<haxelib name="flixel" />
 

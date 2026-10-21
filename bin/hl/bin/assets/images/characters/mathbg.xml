@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TextureAtlas imagePath="mathbg.png">
+<SubTexture name="mathbg idle0000" x="0" y="0" width="439" height="502" frameX="-130" frameY="-187" frameWidth="768" frameHeight="768" />
+<SubTexture name="mathbg idle0001" x="893" y="0" width="426" height="485" frameX="-148" frameY="-193" frameWidth="768" frameHeight="768" />
+<SubTexture name="mathbg idle0002" x="439" y="0" width="454" height="501" frameX="-137" frameY="-181" frameWidth="768" frameHeight="768" />
+</TextureAtlas>

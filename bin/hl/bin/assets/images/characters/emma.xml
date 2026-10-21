@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TextureAtlas imagePath="emma.png">
+<SubTexture name="emma idle0000" x="1077" y="0" width="335" height="639" frameX="-228" frameY="-109" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma idle0001" x="0" y="654" width="335" height="639" frameX="-228" frameY="-109" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma idle0002" x="335" y="654" width="335" height="639" frameX="-228" frameY="-109" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma idle0003" x="670" y="654" width="335" height="639" frameX="-228" frameY="-109" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma idle0004" x="1077" y="0" width="335" height="639" frameX="-228" frameY="-109" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma left0000" x="1412" y="0" width="408" height="619" frameX="-200" frameY="-123" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma left0001" x="1412" y="0" width="408" height="619" frameX="-200" frameY="-123" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma left0002" x="1412" y="619" width="408" height="619" frameX="-200" frameY="-123" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma left0003" x="1820" y="0" width="408" height="619" frameX="-200" frameY="-123" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma down0000" x="396" y="1293" width="390" height="580" frameX="-211" frameY="-162" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma down0001" x="396" y="1293" width="390" height="580" frameX="-211" frameY="-162" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma down0002" x="786" y="1293" width="390" height="580" frameX="-211" frameY="-162" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma down0003" x="1176" y="1293" width="390" height="580" frameX="-211" frameY="-162" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma right0000" x="1820" y="619" width="396" height="619" frameX="-224" frameY="-129" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma right0001" x="1820" y="619" width="396" height="619" frameX="-224" frameY="-129" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma right0002" x="1005" y="654" width="396" height="619" frameX="-224" frameY="-129" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma right0003" x="0" y="1293" width="396" height="619" frameX="-224" frameY="-129" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma up0000" x="0" y="0" width="359" height="654" frameX="-220" frameY="-100" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma up0001" x="0" y="0" width="359" height="654" frameX="-220" frameY="-100" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma up0002" x="359" y="0" width="359" height="654" frameX="-220" frameY="-100" frameWidth="768" frameHeight="768" />
+<SubTexture name="emma up0003" x="718" y="0" width="359" height="654" frameX="-220" frameY="-100" frameWidth="768" frameHeight="768" />
+</TextureAtlas>

@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TextureAtlas imagePath="bfpapel.png">
+<SubTexture name="bfpapel idle0000" x="1035" y="737" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0001" x="1035" y="737" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0002" x="1380" y="737" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0003" x="1380" y="737" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0004" x="1875" y="0" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0005" x="1875" y="0" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0006" x="1875" y="569" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel idle0007" x="0" y="1309" width="345" height="569" frameX="-194" frameY="-165" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel down0000" x="345" y="1309" width="398" height="520" frameX="-168" frameY="-218" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel down0001" x="345" y="1309" width="398" height="520" frameX="-168" frameY="-218" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel down0002" x="743" y="1309" width="398" height="520" frameX="-168" frameY="-218" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel down0003" x="743" y="1309" width="398" height="520" frameX="-168" frameY="-218" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel left0000" x="1141" y="1309" width="455" height="515" frameX="-74" frameY="-222" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel left0001" x="1141" y="1309" width="455" height="515" frameX="-74" frameY="-222" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel left0002" x="1596" y="1309" width="455" height="515" frameX="-74" frameY="-222" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel left0003" x="1596" y="1309" width="455" height="515" frameX="-74" frameY="-222" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel right0000" x="0" y="0" width="625" height="737" frameX="0" frameY="0" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel right0001" x="625" y="0" width="625" height="737" frameX="0" frameY="0" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel right0002" x="1250" y="0" width="625" height="737" frameX="0" frameY="0" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel right0003" x="1250" y="0" width="625" height="737" frameX="0" frameY="0" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel up0000" x="0" y="737" width="345" height="572" frameX="-184" frameY="-162" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel up0001" x="345" y="737" width="345" height="572" frameX="-184" frameY="-162" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel up0002" x="690" y="737" width="345" height="572" frameX="-184" frameY="-162" frameWidth="678" frameHeight="768" />
+<SubTexture name="bfpapel up0003" x="690" y="737" width="345" height="572" frameX="-184" frameY="-162" frameWidth="678" frameHeight="768" />
+</TextureAtlas>

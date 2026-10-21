@@ -3,6 +3,7 @@ package states;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
+import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
@@ -10,6 +11,8 @@ import openfl.utils.Assets;
 import audio.SongAudio;
 import chart.ChartLoader;
 import chart.FNFChart;
+import graphics.SparrowCharacter;
+import graphics.SparrowLoader;
 import input.ArrowInput;
 import input.NoteDirection;
 import notes.Judgment;
@@ -37,12 +40,18 @@ class PlayState extends FlxState
 	static inline var RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 	static inline var PLAYER_RECEPTOR_COLOR:Int = 0xFF2A2A45;
 	static inline var OPPONENT_RECEPTOR_COLOR:Int = 0xFF1E1E30;
+	static inline var NOTE_IMAGE_PATH:String = "assets/images/notes/notes.png";
+	static inline var NOTE_XML_PATH:String = "assets/images/notes/notes.xml";
+	static inline var CHARACTER_Y:Float = 96;
 
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
+	var noteFrames:FlxAtlasFrames;
+	var playerCharacter:SparrowCharacter;
+	var opponentCharacter:SparrowCharacter;
 	var songTime:Float = 0;
 	var elapsedSongTime:Float = 0;
 	var health:Float = START_HEALTH;
@@ -124,6 +133,9 @@ class PlayState extends FlxState
 				applyJudgment(result.judgment);
 				showJudgment(result.judgment, result.offset);
 
+				if (playerCharacter != null)
+					playerCharacter.sing(direction);
+
 				if (result.judgment != Judgment.MISS)
 					flashPlayerReceptor(direction);
 			}
@@ -134,6 +146,12 @@ class PlayState extends FlxState
 			applyJudgment(Judgment.MISS);
 			showJudgment(Judgment.MISS, songTime - note.time);
 		}
+
+		if (playerCharacter != null)
+			playerCharacter.updateCharacter(elapsed);
+
+		if (opponentCharacter != null)
+			opponentCharacter.updateCharacter(elapsed);
 
 		updateNotePositions();
 		updateReceptorFlashes(elapsed);
@@ -215,6 +233,13 @@ class PlayState extends FlxState
 		var chartPath = 'assets/songs/$songFolder/charts/$songDifficulty.json';
 		var metaPath = 'assets/songs/$songFolder/meta.json';
 		chartData = ChartLoader.loadSong(chartPath, metaPath);
+		buildCharacters();
+
+		noteFrames = SparrowLoader.load(NOTE_IMAGE_PATH, NOTE_XML_PATH);
+
+		if (noteFrames == null)
+			FlxG.log.warn("Missing note atlas; using rectangular notes");
+
 		buildChart();
 
 		var audioPath = 'assets/songs/$songFolder/song';
@@ -239,15 +264,24 @@ class PlayState extends FlxState
 		songAudio.play();
 	}
 
+	function buildCharacters():Void
+	{
+		opponentCharacter = new SparrowCharacter(chartData.opponentCharacter, false);
+		playerCharacter = new SparrowCharacter(chartData.playerCharacter, true);
+
+		opponentCharacter.placeAt(groupCenter(false), CHARACTER_Y);
+		playerCharacter.placeAt(groupCenter(true), CHARACTER_Y);
+
+		insert(0, opponentCharacter);
+		insert(0, playerCharacter);
+	}
+
 	function buildChart():Void
 	{
-		var colors = [0xFFC24B99, 0xFF00CFFF, 0xFF12FA05, 0xFFF9393F];
-
 		for (chartNote in chartData.notes)
 		{
 			var note = new Note(chartNote.time, chartNote.direction);
-			var sprite = new FlxSprite(laneCenter(chartNote.direction, chartNote.isPlayer) - 28, -100);
-			sprite.makeGraphic(56, 24, colors[cast(chartNote.direction, Int)]);
+			var sprite = createNoteSprite(chartNote.direction, chartNote.isPlayer);
 			sprite.alpha = chartNote.isPlayer ? 1.0 : 0.5;
 			add(sprite);
 
@@ -258,6 +292,58 @@ class PlayState extends FlxState
 				notes.push(note);
 			else
 				opponentEntries.push(entry);
+		}
+	}
+
+	function createNoteSprite(direction:NoteDirection, isPlayer:Bool):FlxSprite
+	{
+		var sprite = new FlxSprite();
+
+		if (noteFrames != null)
+		{
+			var frame = noteFrames.getByName(noteFrameName(direction));
+
+			if (frame != null)
+			{
+				sprite.frames = noteFrames;
+				sprite.frame = frame;
+			}
+			else
+			{
+				makeFallbackNote(sprite, direction);
+			}
+		}
+		else
+		{
+			makeFallbackNote(sprite, direction);
+		}
+
+		sprite.x = laneCenter(direction, isPlayer) - sprite.width * 0.5;
+		sprite.y = -100;
+		return sprite;
+	}
+
+	function makeFallbackNote(sprite:FlxSprite, direction:NoteDirection):Void
+	{
+		var color = switch (direction)
+		{
+			case LEFT: 0xFFC24B99;
+			case DOWN: 0xFF00CFFF;
+			case UP: 0xFF12FA05;
+			case RIGHT: 0xFFF9393F;
+		}
+
+		sprite.makeGraphic(56, 24, color);
+	}
+
+	static function noteFrameName(direction:NoteDirection):String
+	{
+		return switch (direction)
+		{
+			case LEFT: "noteLEFT0000";
+			case DOWN: "noteDOWN0000";
+			case UP: "noteUP0000";
+			case RIGHT: "noteRIGHT0000";
 		}
 	}
 
@@ -323,6 +409,9 @@ class PlayState extends FlxState
 			entry.note.hit = true;
 			entry.sprite.visible = false;
 			flashOpponentReceptor(entry.note.direction);
+
+			if (opponentCharacter != null)
+				opponentCharacter.sing(entry.note.direction);
 		}
 	}
 
@@ -381,9 +470,9 @@ class PlayState extends FlxState
 				continue;
 			}
 
-			var y = RECEPTOR_Y - 12 - (note.time - songTime) * NOTE_SPEED;
+			var y = RECEPTOR_Y - sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
 			sprite.y = y;
-			sprite.visible = y > -32 && y < FlxG.height;
+			sprite.visible = y > -sprite.height && y < FlxG.height;
 		}
 	}
 
