@@ -6,7 +6,7 @@ import flixel.sound.FlxSound;
 class SongAudio
 {
 	static inline var INST_VOLUME:Float = 1.0;
-	static inline var VOICE_VOLUME:Float = 0.8;
+	static inline var VOICE_VOLUME:Float = 1.0;
 
 	public var inst(default, null):FlxSound;
 	public var opponentVoices(default, null):FlxSound;
@@ -39,6 +39,14 @@ class SongAudio
 		opponentVoices.time = inst.time;
 		playerVoices.time = inst.time;
 		started = true;
+	}
+
+	public function setPlayerVocalsMuted(muted:Bool):Void
+	{
+		if (playerVoices == null)
+			return;
+
+		playerVoices.volume = muted ? 0.0 : VOICE_VOLUME;
 	}
 
 	public function update():Void

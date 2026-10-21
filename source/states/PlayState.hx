@@ -38,6 +38,10 @@ class PlayState extends FlxState
 	static inline var SICK_HEAL:Float = 0.035;
 	static inline var GOOD_HEAL:Float = 0.015;
 	static inline var MISS_DAMAGE:Float = 0.05;
+	static inline var RECEPTOR_FLASH_TIME:Float = 0.12;
+	static inline var PLAYER_RECEPTOR_COLOR:Int = 0xFF2A2A45;
+	static inline var OPPONENT_RECEPTOR_COLOR:Int = 0xFF1E1E30;
+	static inline var OPPONENT_RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
@@ -50,6 +54,9 @@ class PlayState extends FlxState
 	var detector:NoteDetector;
 	var notes:Array<Note> = [];
 	var chart:Array<ChartEntry> = [];
+	var opponentEntries:Array<ChartEntry> = [];
+	var opponentReceptors:Array<FlxSprite> = [null, null, null, null];
+	var opponentFlashTimers:Array<Float> = [0, 0, 0, 0];
 	var judgmentText:FlxText;
 	var timerText:FlxText;
 	var healthBar:HealthBar;
@@ -98,6 +105,8 @@ class PlayState extends FlxState
 			songTime = songAudio.getTime() + (chartData == null ? 0 : chartData.offset);
 		else
 			songTime = elapsedSongTime + (chartData == null ? 0 : chartData.offset);
+
+		updateOpponentAutoPlay(elapsed);
 
 		for (direction in arrows.justPressedDirections())
 		{
@@ -151,8 +160,12 @@ class PlayState extends FlxState
 				var x = laneCenter(direction, isPlayer);
 
 				var receptor = new FlxSprite(x - 32, RECEPTOR_Y - 32);
-				receptor.makeGraphic(64, 64, isPlayer ? 0xFF2A2A45 : 0xFF1E1E30);
+				receptor.makeGraphic(64, 64, FlxColor.WHITE);
+				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
 				add(receptor);
+
+				if (!isPlayer)
+					opponentReceptors[cast(direction, Int)] = receptor;
 
 				var label = new FlxText(x - 50, RECEPTOR_Y + 42, 100, labels[i], 14);
 				label.alignment = FlxTextAlign.CENTER;
@@ -189,10 +202,13 @@ class PlayState extends FlxState
 			sprite.alpha = chartNote.isPlayer ? 1.0 : 0.5;
 			add(sprite);
 
-			chart.push({note: note, sprite: sprite});
+			var entry:ChartEntry = {note: note, sprite: sprite};
+			chart.push(entry);
 
 			if (chartNote.isPlayer)
 				notes.push(note);
+			else
+				opponentEntries.push(entry);
 		}
 	}
 
@@ -248,6 +264,42 @@ class PlayState extends FlxState
 		add(hint);
 	}
 
+	function updateOpponentAutoPlay(elapsed:Float):Void
+	{
+		for (entry in opponentEntries)
+		{
+			if (entry.note.hit || songTime < entry.note.time)
+				continue;
+
+			entry.note.hit = true;
+			entry.sprite.visible = false;
+			flashOpponentReceptor(entry.note.direction);
+		}
+
+		for (i in 0...opponentFlashTimers.length)
+		{
+			if (opponentFlashTimers[i] <= 0)
+				continue;
+
+			opponentFlashTimers[i] -= elapsed;
+
+			if (opponentFlashTimers[i] <= 0 && opponentReceptors[i] != null)
+				opponentReceptors[i].color = OPPONENT_RECEPTOR_COLOR;
+		}
+	}
+
+	function flashOpponentReceptor(direction:NoteDirection):Void
+	{
+		var index = cast(direction, Int);
+		var receptor = opponentReceptors[index];
+
+		if (receptor == null)
+			return;
+
+		receptor.color = OPPONENT_RECEPTOR_FLASH_COLOR;
+		opponentFlashTimers[index] = RECEPTOR_FLASH_TIME;
+	}
+
 	function updateNotePositions():Void
 	{
 		for (entry in chart)
@@ -289,6 +341,14 @@ class PlayState extends FlxState
 
 		if (healthBar != null)
 			healthBar.setHealth(health);
+
+		if (songAudio != null)
+		{
+			if (judgment == Judgment.MISS)
+				songAudio.setPlayerVocalsMuted(true);
+			else if (judgment == Judgment.SICK || judgment == Judgment.GOOD)
+				songAudio.setPlayerVocalsMuted(false);
+		}
 	}
 
 	function showJudgment(judgment:Judgment, offset:Float):Void
