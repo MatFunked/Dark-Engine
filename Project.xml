@@ -12,6 +12,8 @@
 
 	<source path="source" />
 
+	<assets path="mods/Emma's Road - TAT UST/songs/emma" rename="assets/songs/emma" />
+
 	<haxelib name="flixel" />
 
 	<haxedef name="message.reporting" value="pretty" />

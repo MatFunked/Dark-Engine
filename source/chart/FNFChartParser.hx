@@ -4,7 +4,7 @@ import input.NoteDirection;
 
 class FNFChartParser
 {
-	public static function parse(json:String, ?timeMode:ChartTimeMode):FNFChart
+	public static function parse(json:String, ?timeMode:ChartTimeMode, ?fallbackBpm:Float):FNFChart
 	{
 		if (timeMode == null)
 			timeMode = ChartTimeMode.AbsoluteMs;
@@ -26,6 +26,14 @@ class FNFChartParser
 		var nestedSong:Dynamic = Reflect.field(root, "song");
 		var songData:Dynamic = (nestedSong != null && !Std.isOfType(nestedSong, String)) ? nestedSong : root;
 
+		var rawStrumLines:Dynamic = Reflect.field(songData, "strumLines");
+
+		if (!Std.isOfType(rawStrumLines, Array))
+			rawStrumLines = Reflect.field(root, "strumLines");
+
+		if (Std.isOfType(rawStrumLines, Array))
+			return parseStrumLines(root, songData, cast rawStrumLines, fallbackBpm == null ? 0 : fallbackBpm);
+
 		var rawSections:Dynamic = Reflect.field(songData, "notes");
 
 		if (!Std.isOfType(rawSections, Array))
@@ -37,7 +45,7 @@ class FNFChartParser
 
 		var chart = new FNFChart();
 		chart.songName = stringValue(Reflect.field(songData, "song"), "Untitled");
-		chart.bpm = numberValue(Reflect.field(songData, "bpm"), numberValue(Reflect.field(root, "bpm"), 0));
+		chart.bpm = numberValue(Reflect.field(songData, "bpm"), numberValue(Reflect.field(root, "bpm"), fallbackBpm == null ? 0 : fallbackBpm));
 
 		if (chart.bpm <= 0)
 			throw "Invalid FNF chart: BPM must be greater than 0";
@@ -140,6 +148,58 @@ class FNFChartParser
 			section.notes.sort(compareNotes);
 			chart.sections.push(section);
 			currentTime = endTime;
+		}
+
+		chart.notes.sort(compareNotes);
+		return chart;
+	}
+
+	static function parseStrumLines(root:Dynamic, songData:Dynamic, rawStrumLines:Array<Dynamic>, fallbackBpm:Float):FNFChart
+	{
+		var chart = new FNFChart();
+		chart.songName = stringValue(Reflect.field(songData, "songName"), stringValue(Reflect.field(songData, "song"), "Untitled"));
+		chart.bpm = numberValue(Reflect.field(songData, "bpm"), numberValue(Reflect.field(root, "bpm"), fallbackBpm));
+		chart.speed = numberValue(Reflect.field(songData, "scrollSpeed"), numberValue(Reflect.field(songData, "speed"), 1));
+		chart.stage = stringValue(Reflect.field(songData, "stage"), "stage");
+		chart.needsVoices = boolValue(Reflect.field(songData, "needsVoices"), true);
+		chart.offset = numberValue(Reflect.field(songData, "offset"), 0);
+
+		if (chart.bpm > 0)
+			chart.bpmChanges.push(new BpmChange(0, chart.bpm, 0));
+
+		for (i in 0...rawStrumLines.length)
+		{
+			var strumLine:Dynamic = rawStrumLines[i];
+
+			if (strumLine == null)
+				continue;
+
+			var position = stringValue(Reflect.field(strumLine, "position"), "").toLowerCase();
+			var isPlayer = position == "bf" || position == "boyfriend" || position == "player" || position == "both";
+			var rawNotes:Dynamic = Reflect.field(strumLine, "notes");
+
+			if (!Std.isOfType(rawNotes, Array))
+				continue;
+
+			var lineNotes:Array<Dynamic> = cast rawNotes;
+
+			for (rawNote in lineNotes)
+			{
+				if (rawNote == null)
+					continue;
+
+				var lane = intValue(Reflect.field(rawNote, "id"), 0) % 4;
+
+				if (lane < 0)
+					lane += 4;
+
+				var rawTime = numberValue(Reflect.field(rawNote, "time"), 0);
+				var sustainLength = Math.max(0, numberValue(Reflect.field(rawNote, "sLen"), 0));
+				var rawNoteType = Reflect.field(rawNote, "type");
+				var noteType = rawNoteType == null ? "" : Std.string(rawNoteType);
+				var note = new ChartNote(rawTime, cast lane, lane, sustainLength, isPlayer, noteType, i);
+				chart.notes.push(note);
+			}
 		}
 
 		chart.notes.sort(compareNotes);

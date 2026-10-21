@@ -75,10 +75,7 @@ import sys.FileSystem;
 
 		var data, manifest, library, bundle;
 
-		data = '{"name":null,"assets":"aoy4:sizei6840y4:typey5:SOUNDy9:classNamey31:__ASSET__flixel_sounds_beep_oggy2:idy26:flixel%2Fsounds%2Fbeep.ogggoR0i33629R1R2R3y33:__ASSET__flixel_sounds_flixel_oggR5y28:flixel%2Fsounds%2Fflixel.ogggoR0i15744R1y4:FONTR3y35:__ASSET__flixel_fonts_nokiafc22_ttfR5y30:flixel%2Ffonts%2Fnokiafc22.ttfgoR0i29724R1R9R3y36:__ASSET__flixel_fonts_monsterrat_ttfR5y31:flixel%2Ffonts%2Fmonsterrat.ttfgoR0i248R1y5:IMAGER3y36:__ASSET__flixel_images_ui_button_pngR5y33:flixel%2Fimages%2Fui%2Fbutton.pnggoR0i505R1R14R3y39:__ASSET__flixel_images_logo_default_pngR5y36:flixel%2Fimages%2Flogo%2Fdefault.pnggh","rootPath":null,"version":2,"libraryArgs":[],"libraryType":null}';
-		manifest = AssetManifest.parse (data, rootPath);
-		library = AssetLibrary.fromManifest (manifest);
-		Assets.registerLibrary ("default", library);
+		Assets.libraryPaths["default"] = rootPath + "manifest/default.json";
 		
 
 		library = Assets.getLibrary ("default");
@@ -94,6 +91,11 @@ import sys.FileSystem;
 #if !display
 #if flash
 
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_charts_hard_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_meta_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_song_inst_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_song_voices_emma_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_song_voices_math_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_sounds_beep_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_sounds_flixel_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_fonts_nokiafc22_ttf extends null { }
@@ -111,7 +113,6 @@ import sys.FileSystem;
 @:keep @:font("C:/HaxeToolkit/haxe/lib/flixel/5,6,1/assets/fonts/monsterrat.ttf") @:noCompletion #if display private #end class __ASSET__flixel_fonts_monsterrat_ttf extends lime.text.Font {}
 @:keep @:image("C:/HaxeToolkit/haxe/lib/flixel/5,6,1/assets/images/ui/button.png") @:noCompletion #if display private #end class __ASSET__flixel_images_ui_button_png extends lime.graphics.Image {}
 @:keep @:image("C:/HaxeToolkit/haxe/lib/flixel/5,6,1/assets/images/logo/default.png") @:noCompletion #if display private #end class __ASSET__flixel_images_logo_default_png extends lime.graphics.Image {}
-@:keep @:file("bin/hl/obj/tmp/manifest/default.json") @:noCompletion #if display private #end class __ASSET__manifest_default_json extends haxe.io.Bytes {}
 
 
 
