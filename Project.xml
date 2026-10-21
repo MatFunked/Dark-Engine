@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://lime.openfl.org/project/1.0.4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://lime.openfl.org/project/1.0.4 http://lime.openfl.org/xsd/project-1.0.4.xsd">
+
+	<app title="DarkEngine" file="DarkEngine" main="Main" version="0.1.0" company="DarkEngine" />
+	<app preloader="flixel.system.FlxPreloader" />
+
+	<set name="SWF_VERSION" value="11.8" />
+
+	<window width="1280" height="720" fps="60" background="#000000" hardware="true" vsync="false" />
+	<window if="desktop" orientation="landscape" fullscreen="false" resizable="true" />
+
+	<source path="source" />
+
+	<haxelib name="flixel" />
+
+	<haxedef name="message.reporting" value="pretty" />
+</project>
