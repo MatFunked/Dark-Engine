@@ -19,6 +19,7 @@ import notes.Judgment;
 import notes.Note;
 import notes.NoteDetector;
 import notes.TimingWindows;
+import settings.GameSettings;
 import ui.HealthBar;
 
 private typedef ChartEntry =
@@ -30,7 +31,8 @@ private typedef ChartEntry =
 
 class PlayState extends FlxState
 {
-	static inline var RECEPTOR_Y:Float = 560;
+	static inline var UPSCROLL_RECEPTOR_Y:Float = 220;
+	static inline var DOWNSCROLL_RECEPTOR_Y:Float = 560;
 	static inline var LANE_WIDTH:Float = 110;
 	static inline var NOTE_SPEED:Float = 0.35;
 	static inline var SUSTAIN_WIDTH:Float = 26;
@@ -83,6 +85,8 @@ class PlayState extends FlxState
 	var misses:Int = 0;
 	var loadError:String = null;
 	var arrows:ArrowInput;
+	var downscroll:Bool = false;
+	var noteOffsetMs:Float = 0;
 	var detector:NoteDetector;
 	var notes:Array<Note> = [];
 	var activeHolds:Array<Note> = [];
@@ -109,7 +113,14 @@ class PlayState extends FlxState
 		super.create();
 
 		bgColor = 0xFF0B0B12;
+		GameSettings.load();
+		downscroll = GameSettings.downscroll;
+		noteOffsetMs = GameSettings.noteOffsetMs;
 		arrows = new ArrowInput();
+
+		for (direction in NoteDirection.all())
+			arrows.bind(direction, [GameSettings.getKey(direction)]);
+
 		detector = new NoteDetector(new TimingWindows());
 
 		buildLanes();
@@ -143,10 +154,9 @@ class PlayState extends FlxState
 
 		elapsedSongTime += elapsed * 1000;
 
-		if (songAudio != null && songAudio.isPlaying())
-			songTime = songAudio.getTime() + (chartData == null ? 0 : chartData.offset);
-		else
-			songTime = elapsedSongTime + (chartData == null ? 0 : chartData.offset);
+		var rawSongTime = songAudio != null && songAudio.isPlaying() ? songAudio.getTime() : elapsedSongTime;
+		var chartOffset = chartData == null ? 0 : chartData.offset;
+		songTime = rawSongTime + chartOffset - noteOffsetMs;
 
 		updateOpponentAutoPlay();
 
@@ -261,6 +271,7 @@ class PlayState extends FlxState
 	{
 		var directions = NoteDirection.all();
 		var labels = ["LEFT", "DOWN", "UP", "RIGHT"];
+		var receptorY = currentReceptorY();
 
 		for (isPlayer in [false, true])
 		{
@@ -269,7 +280,7 @@ class PlayState extends FlxState
 				var direction = directions[i];
 				var x = laneCenter(direction, isPlayer);
 
-				var receptor = new FlxSprite(x - 32, RECEPTOR_Y - 32);
+				var receptor = new FlxSprite(x - 32, receptorY - 32);
 				receptor.makeGraphic(64, 64, FlxColor.WHITE);
 				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
 				add(receptor);
@@ -279,13 +290,13 @@ class PlayState extends FlxState
 				else
 					opponentReceptors[cast(direction, Int)] = receptor;
 
-				var label = new FlxText(x - 50, RECEPTOR_Y + 42, 100, labels[i], 14);
+				var label = new FlxText(x - 50, receptorY + 42, 100, labels[i], 14);
 				label.alignment = FlxTextAlign.CENTER;
 				label.color = isPlayer ? FlxColor.GRAY : 0xFF555566;
 				add(label);
 			}
 
-			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, RECEPTOR_Y + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
+			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, receptorY + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
 			sideLabel.alignment = FlxTextAlign.CENTER;
 			sideLabel.color = isPlayer ? 0xFF88AAFF : 0xFF887788;
 			add(sideLabel);
@@ -552,7 +563,7 @@ class PlayState extends FlxState
 				sprite.visible = false;
 			else
 			{
-				var y = RECEPTOR_Y - sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
+				var y = noteYAt(note.time, sprite.height);
 				sprite.y = y;
 				sprite.visible = y > -sprite.height && y < FlxG.height;
 			}
@@ -584,8 +595,10 @@ class PlayState extends FlxState
 			return;
 		}
 
-		var top = RECEPTOR_Y - entry.sprite.height * 0.5 - (endTime - songTime) * NOTE_SPEED;
-		var bottom = note.hit ? RECEPTOR_Y : RECEPTOR_Y - entry.sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
+		var startY = note.hit ? currentReceptorY() : noteYAt(note.time, entry.sprite.height);
+		var endY = noteYAt(endTime, entry.sprite.height);
+		var top = Math.min(startY, endY);
+		var bottom = Math.max(startY, endY);
 		var length = bottom - top;
 
 		if (length <= 1)
@@ -745,6 +758,21 @@ class PlayState extends FlxState
 			return 0xFFB36BFF;
 
 		return 0xFFFF3344;
+	}
+
+	inline function currentReceptorY():Float
+	{
+		return downscroll ? DOWNSCROLL_RECEPTOR_Y : UPSCROLL_RECEPTOR_Y;
+	}
+
+	inline function noteYAt(time:Float, height:Float):Float
+	{
+		var receptorY = currentReceptorY();
+
+		if (downscroll)
+			return receptorY - height * 0.5 - (time - songTime) * NOTE_SPEED;
+
+		return receptorY - height * 0.5 + (time - songTime) * NOTE_SPEED;
 	}
 
 	inline function groupCenter(isPlayer:Bool):Float
