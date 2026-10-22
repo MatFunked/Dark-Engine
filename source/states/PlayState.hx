@@ -31,8 +31,6 @@ private typedef ChartEntry =
 
 class PlayState extends FlxState
 {
-	static inline var UPSCROLL_RECEPTOR_Y:Float = 220;
-	static inline var DOWNSCROLL_RECEPTOR_Y:Float = 560;
 	static inline var LANE_WIDTH:Float = 110;
 	static inline var NOTE_SPEED:Float = 0.35;
 	static inline var SUSTAIN_WIDTH:Float = 26;
@@ -63,6 +61,10 @@ class PlayState extends FlxState
 	static inline var NOTE_IMAGE_PATH:String = "assets/images/notes/notes.png";
 	static inline var NOTE_XML_PATH:String = "assets/images/notes/notes.xml";
 	static inline var CHARACTER_Y:Float = 96;
+	static inline var HUD_DOWNSCROLL_HEALTH_Y:Float = 40;
+	static inline var HUD_DOWNSCROLL_SCORE_OFFSET:Float = 35;
+	static inline var HUD_UPSCROLL_HEALTH_OFFSET:Float = 70;
+	static inline var HUD_UPSCROLL_SCORE_OFFSET:Float = 25;
 
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
@@ -86,6 +88,7 @@ class PlayState extends FlxState
 	var loadError:String = null;
 	var arrows:ArrowInput;
 	var downscroll:Bool = false;
+	var strumLineY:Float = 50;
 	var noteOffsetMs:Float = 0;
 	var detector:NoteDetector;
 	var notes:Array<Note> = [];
@@ -98,6 +101,7 @@ class PlayState extends FlxState
 	var opponentFlashTimers:Array<Float> = [0, 0, 0, 0];
 	var judgmentText:FlxText;
 	var timerText:FlxText;
+	var scoreText:FlxText;
 	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
 
@@ -115,6 +119,7 @@ class PlayState extends FlxState
 		bgColor = 0xFF0B0B12;
 		GameSettings.load();
 		downscroll = GameSettings.downscroll;
+		strumLineY = downscroll ? FlxG.height - 150 : 50;
 		noteOffsetMs = GameSettings.noteOffsetMs;
 		arrows = new ArrowInput();
 
@@ -201,6 +206,7 @@ class PlayState extends FlxState
 		updateFeedback(elapsed);
 
 		timerText.text = '${Std.int(songTime / 10) / 100} s';
+		scoreText.text = 'SCORE $score';
 
 		if (!resultsTriggered && songAudio != null && songAudio.isFinished())
 		{
@@ -271,32 +277,31 @@ class PlayState extends FlxState
 	{
 		var directions = NoteDirection.all();
 		var labels = ["LEFT", "DOWN", "UP", "RIGHT"];
-		var receptorY = currentReceptorY();
 
 		for (isPlayer in [false, true])
 		{
+			var receptors = isPlayer ? playerReceptors : opponentReceptors;
+
 			for (i in 0...directions.length)
 			{
 				var direction = directions[i];
 				var x = laneCenter(direction, isPlayer);
 
-				var receptor = new FlxSprite(x - 32, receptorY - 32);
+				var receptor = new FlxSprite(x - 32);
 				receptor.makeGraphic(64, 64, FlxColor.WHITE);
+				receptor.y = strumLineY - receptor.height * 0.5;
 				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
 				add(receptor);
 
-				if (isPlayer)
-					playerReceptors[cast(direction, Int)] = receptor;
-				else
-					opponentReceptors[cast(direction, Int)] = receptor;
+				receptors[cast(direction, Int)] = receptor;
 
-				var label = new FlxText(x - 50, receptorY + 42, 100, labels[i], 14);
+				var label = new FlxText(x - 50, strumLineY + 42, 100, labels[i], 14);
 				label.alignment = FlxTextAlign.CENTER;
 				label.color = isPlayer ? FlxColor.GRAY : 0xFF555566;
 				add(label);
 			}
 
-			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, receptorY + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
+			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, strumLineY + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
 			sideLabel.alignment = FlxTextAlign.CENTER;
 			sideLabel.color = isPlayer ? 0xFF88AAFF : 0xFF887788;
 			add(sideLabel);
@@ -445,7 +450,9 @@ class PlayState extends FlxState
 	function buildUi():Void
 	{
 		var titleText = chartData == null ? "DARK ENGINE" : '${chartData.songName.toUpperCase()} - ${songDifficulty.toUpperCase()}';
-		var title = new FlxText(0, 24, FlxG.width, titleText, 28);
+		var titleY = downscroll ? 4 : 24;
+		var titleSize = downscroll ? 22 : 28;
+		var title = new FlxText(0, titleY, FlxG.width, titleText, titleSize);
 		title.alignment = FlxTextAlign.CENTER;
 		title.color = FlxColor.WHITE;
 		add(title);
@@ -455,9 +462,29 @@ class PlayState extends FlxState
 		timerText.color = FlxColor.GRAY;
 		add(timerText);
 
-		healthBar = new HealthBar(FlxG.width * 0.5 - HealthBar.BAR_WIDTH * 0.5, 66);
+		var healthY:Float;
+		var scoreY:Float;
+
+		if (downscroll)
+		{
+			healthY = HUD_DOWNSCROLL_HEALTH_Y;
+			scoreY = healthY + HUD_DOWNSCROLL_SCORE_OFFSET;
+		}
+		else
+		{
+			healthY = FlxG.height - HUD_UPSCROLL_HEALTH_OFFSET;
+			scoreY = healthY - HUD_UPSCROLL_SCORE_OFFSET;
+		}
+
+		var healthX = FlxG.width * 0.5 - HealthBar.BAR_WIDTH * 0.5;
+		healthBar = new HealthBar(healthX, healthY);
 		add(healthBar);
 		healthBar.setHealth(health);
+
+		scoreText = new FlxText(healthX, scoreY, HealthBar.BAR_WIDTH, "SCORE 0", 16);
+		scoreText.alignment = FlxTextAlign.CENTER;
+		scoreText.color = 0xFFCCCCDD;
+		add(scoreText);
 
 		judgmentText = new FlxText(0, 100, FlxG.width, "", 44);
 		judgmentText.alignment = FlxTextAlign.CENTER;
@@ -595,7 +622,7 @@ class PlayState extends FlxState
 			return;
 		}
 
-		var startY = note.hit ? currentReceptorY() : noteYAt(note.time, entry.sprite.height);
+		var startY = note.hit ? strumLineY : noteYAt(note.time, entry.sprite.height);
 		var endY = noteYAt(endTime, entry.sprite.height);
 		var top = Math.min(startY, endY);
 		var bottom = Math.max(startY, endY);
@@ -760,19 +787,12 @@ class PlayState extends FlxState
 		return 0xFFFF3344;
 	}
 
-	inline function currentReceptorY():Float
-	{
-		return downscroll ? DOWNSCROLL_RECEPTOR_Y : UPSCROLL_RECEPTOR_Y;
-	}
-
 	inline function noteYAt(time:Float, height:Float):Float
 	{
-		var receptorY = currentReceptorY();
-
 		if (downscroll)
-			return receptorY - height * 0.5 - (time - songTime) * NOTE_SPEED;
+			return strumLineY - height * 0.5 - (time - songTime) * NOTE_SPEED;
 
-		return receptorY - height * 0.5 + (time - songTime) * NOTE_SPEED;
+		return strumLineY - height * 0.5 + (time - songTime) * NOTE_SPEED;
 	}
 
 	inline function groupCenter(isPlayer:Bool):Float
