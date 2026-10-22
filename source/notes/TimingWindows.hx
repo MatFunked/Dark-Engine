@@ -33,6 +33,8 @@ class TimingWindows
 			return Judgment.GOOD;
 		if (distance <= badWindow)
 			return Judgment.BAD;
+		if (distance <= missWindow)
+			return Judgment.SHIT;
 
 		return Judgment.MISS;
 	}

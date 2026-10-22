@@ -35,7 +35,16 @@ class PlayState extends FlxState
 	static inline var START_HEALTH:Float = 0.5;
 	static inline var SICK_HEAL:Float = 0.035;
 	static inline var GOOD_HEAL:Float = 0.015;
+	static inline var SHIT_DAMAGE:Float = 0.02;
 	static inline var MISS_DAMAGE:Float = 0.05;
+	static inline var SICK_SCORE:Int = 350;
+	static inline var GOOD_SCORE:Int = 200;
+	static inline var BAD_SCORE:Int = 100;
+	static inline var SHIT_SCORE:Int = 50;
+	static inline var SICK_WEIGHT:Float = 1.0;
+	static inline var GOOD_WEIGHT:Float = 0.75;
+	static inline var BAD_WEIGHT:Float = 0.5;
+	static inline var SHIT_WEIGHT:Float = 0.25;
 	static inline var RECEPTOR_FLASH_TIME:Float = 0.12;
 	static inline var RECEPTOR_FLASH_COLOR:Int = 0xFFB8B8FF;
 	static inline var PLAYER_RECEPTOR_COLOR:Int = 0xFF2A2A45;
@@ -56,6 +65,13 @@ class PlayState extends FlxState
 	var elapsedSongTime:Float = 0;
 	var health:Float = START_HEALTH;
 	var gameOverTriggered:Bool = false;
+	var resultsTriggered:Bool = false;
+	var score:Int = 0;
+	var sicks:Int = 0;
+	var goods:Int = 0;
+	var bads:Int = 0;
+	var shits:Int = 0;
+	var misses:Int = 0;
 	var loadError:String = null;
 	var arrows:ArrowInput;
 	var detector:NoteDetector;
@@ -159,6 +175,12 @@ class PlayState extends FlxState
 
 		timerText.text = '${Std.int(songTime / 10) / 100} s';
 
+		if (!resultsTriggered && songAudio != null && songAudio.isFinished())
+		{
+			finishSong();
+			return;
+		}
+
 		if (health <= 0 && !gameOverTriggered)
 		{
 			gameOverTriggered = true;
@@ -191,6 +213,31 @@ class PlayState extends FlxState
 	function restartLevel():Void
 	{
 		FlxG.switchState(new PlayState(songFolder, songDifficulty));
+	}
+
+	function finishSong():Void
+	{
+		resultsTriggered = true;
+
+		for (note in notes)
+		{
+			if (!note.hit)
+			{
+				note.hit = true;
+				note.judgment = Judgment.MISS;
+				misses++;
+			}
+		}
+
+		if (songAudio != null)
+			songAudio.stop();
+
+		var totalNotes = notes.length;
+		var weightedScore = sicks * SICK_WEIGHT + goods * GOOD_WEIGHT + bads * BAD_WEIGHT + shits * SHIT_WEIGHT;
+		var finalAccuracy = totalNotes == 0 ? 100.0 : weightedScore / totalNotes * 100;
+		var songTitle = chartData == null ? songFolder : chartData.songName;
+
+		FlxG.switchState(new ResultsState(songTitle, songDifficulty, score, finalAccuracy, misses, sicks, goods, bads, shits));
 	}
 
 	function buildLanes():Void
@@ -380,7 +427,7 @@ class PlayState extends FlxState
 
 		var windows = detector.windows;
 		var info = new FlxText(0, 180, FlxG.width,
-			'Sick ${windows.sickWindow} / Good ${windows.goodWindow} / Bad ${windows.badWindow} / Miss ${windows.missWindow} ms', 14);
+			'Sick ${windows.sickWindow} / Good ${windows.goodWindow} / Bad ${windows.badWindow} / Shit ${windows.missWindow} ms', 14);
 		info.alignment = FlxTextAlign.CENTER;
 		info.color = 0xFF666688;
 		add(info);
@@ -488,11 +535,33 @@ class PlayState extends FlxState
 	function applyJudgment(judgment:Judgment):Void
 	{
 		if (judgment == Judgment.SICK)
+		{
+			sicks++;
+			score += SICK_SCORE;
 			health += SICK_HEAL;
+		}
 		else if (judgment == Judgment.GOOD)
+		{
+			goods++;
+			score += GOOD_SCORE;
 			health += GOOD_HEAL;
+		}
+		else if (judgment == Judgment.BAD)
+		{
+			bads++;
+			score += BAD_SCORE;
+		}
+		else if (judgment == Judgment.SHIT)
+		{
+			shits++;
+			score += SHIT_SCORE;
+			health -= SHIT_DAMAGE;
+		}
 		else if (judgment == Judgment.MISS)
+		{
+			misses++;
 			health -= MISS_DAMAGE;
+		}
 
 		health = Math.max(0, Math.min(1, health));
 
@@ -501,7 +570,7 @@ class PlayState extends FlxState
 
 		if (songAudio != null)
 		{
-			if (judgment == Judgment.MISS)
+			if (judgment == Judgment.MISS || judgment == Judgment.SHIT)
 				songAudio.setPlayerVocalsMuted(true);
 			else if (judgment == Judgment.SICK || judgment == Judgment.GOOD)
 				songAudio.setPlayerVocalsMuted(false);
@@ -524,6 +593,8 @@ class PlayState extends FlxState
 			return 0xFF22FF44;
 		if (judgment == Judgment.BAD)
 			return 0xFFFFAA00;
+		if (judgment == Judgment.SHIT)
+			return 0xFFB36BFF;
 
 		return 0xFFFF3344;
 	}

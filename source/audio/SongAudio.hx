@@ -14,6 +14,7 @@ class SongAudio
 	public var syncThreshold:Float = 25;
 
 	var started:Bool = false;
+	var finished:Bool = false;
 
 	public function new() {}
 
@@ -25,6 +26,8 @@ class SongAudio
 
 		if (inst == null || opponentVoices == null || playerVoices == null)
 			throw "Could not load song audio";
+
+		inst.onComplete = markFinished;
 	}
 
 	public function loadSingleVoices(instPath:String, voicesPath:String):Void
@@ -35,6 +38,8 @@ class SongAudio
 
 		if (inst == null || playerVoices == null)
 			throw "Could not load song audio";
+
+		inst.onComplete = markFinished;
 	}
 
 	public function play():Void
@@ -42,6 +47,7 @@ class SongAudio
 		if (inst == null || playerVoices == null)
 			return;
 
+		finished = false;
 		inst.play();
 		playerVoices.play();
 		playerVoices.time = inst.time;
@@ -88,6 +94,7 @@ class SongAudio
 	public function stop():Void
 	{
 		started = false;
+		finished = false;
 		stopSound(inst);
 		stopSound(opponentVoices);
 		stopSound(playerVoices);
@@ -106,6 +113,16 @@ class SongAudio
 	public function isPlaying():Bool
 	{
 		return inst != null && inst.playing;
+	}
+
+	public function isFinished():Bool
+	{
+		return started && finished;
+	}
+
+	function markFinished():Void
+	{
+		finished = true;
 	}
 
 	function syncTo(time:Float):Void
