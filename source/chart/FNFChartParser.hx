@@ -153,7 +153,88 @@ class FNFChartParser
 		}
 
 		chart.notes.sort(compareNotes);
+		buildCameraSections(root, songData, chart);
 		return chart;
+	}
+
+	static function buildCameraSections(root:Dynamic, songData:Dynamic, chart:FNFChart):Void
+	{
+		var rawEvents:Dynamic = Reflect.field(root, "events");
+
+		if (!Std.isOfType(rawEvents, Array))
+			rawEvents = Reflect.field(songData, "events");
+
+		if (!Std.isOfType(rawEvents, Array))
+			return;
+
+		var events:Array<Dynamic> = cast rawEvents;
+		var cameraEvents:Array<{time:Float, mustHit:Bool}> = [];
+
+		for (rawEvent in events)
+		{
+			if (rawEvent == null || stringValue(Reflect.field(rawEvent, "name"), "") != "Camera Movement")
+				continue;
+
+			var params:Dynamic = Reflect.field(rawEvent, "params");
+
+			if (!Std.isOfType(params, Array))
+				continue;
+
+			var values:Array<Dynamic> = cast params;
+
+			if (values.length == 0)
+				continue;
+
+			var rawSide = values[0];
+			var side = -1.0;
+
+			if (Std.isOfType(rawSide, Bool))
+				side = (cast rawSide : Bool) ? 1 : 0;
+			else
+				side = numberValue(rawSide, -1);
+
+			if (side < 0)
+				continue;
+
+			cameraEvents.push({time: numberValue(Reflect.field(rawEvent, "time"), 0), mustHit: side >= 1});
+		}
+
+		if (cameraEvents.length == 0)
+			return;
+
+		cameraEvents.sort(function(a, b) return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0));
+
+		var chartEnd = 0.0;
+
+		for (note in chart.notes)
+			chartEnd = Math.max(chartEnd, note.time + note.sustainLength);
+
+		var beatDuration = chart.bpm > 0 ? 60000 / chart.bpm : 0;
+		var index = 0;
+
+		if (cameraEvents[0].time > 0)
+		{
+			var first = new ChartSection(index, 0, cameraEvents[0].time, chart.bpm, false, false);
+			first.beats = beatDuration > 0 ? first.endTime / beatDuration : 0;
+			first.lengthInSteps = Std.int(first.beats * 4);
+			chart.sections.push(first);
+			index++;
+		}
+
+		for (i in 0...cameraEvents.length)
+		{
+			var start = cameraEvents[i].time;
+			var end = i + 1 < cameraEvents.length ? cameraEvents[i + 1].time : Math.max(chartEnd, start + beatDuration * 4);
+
+			if (end <= start)
+				continue;
+
+			var section = new ChartSection(index, start, end, chart.bpm, cameraEvents[i].mustHit, false);
+			section.beats = beatDuration > 0 ? (end - start) / beatDuration : 0;
+			section.lengthInSteps = Std.int(section.beats * 4);
+			chart.sections.push(section);
+			index++;
+		}
 	}
 
 	static function parseStrumLines(root:Dynamic, songData:Dynamic, rawStrumLines:Array<Dynamic>, fallbackBpm:Float):FNFChart

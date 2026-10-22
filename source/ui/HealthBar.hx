@@ -1,5 +1,6 @@
 package ui;
 
+import flixel.FlxCamera;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup;
 import flixel.util.FlxColor;
@@ -25,6 +26,12 @@ class HealthBar extends FlxGroup
 		add(fill);
 
 		setHealth(0.5);
+	}
+
+	public function setCamera(camera:FlxCamera):Void
+	{
+		for (member in members)
+			member.cameras = [camera];
 	}
 
 	public function setHealth(value:Float):Void

@@ -1,15 +1,19 @@
 package states;
 
+import flixel.FlxCamera;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 import openfl.utils.Assets;
 import audio.SongAudio;
 import chart.ChartLoader;
+import chart.ChartSection;
 import chart.FNFChart;
 import graphics.SparrowCharacter;
 import graphics.SparrowLoader;
@@ -65,6 +69,13 @@ class PlayState extends FlxState
 	static inline var HUD_DOWNSCROLL_SCORE_OFFSET:Float = 35;
 	static inline var HUD_UPSCROLL_HEALTH_OFFSET:Float = 70;
 	static inline var HUD_UPSCROLL_SCORE_OFFSET:Float = 25;
+	static inline var CAMERA_BASE_ZOOM:Float = 1.0;
+	static inline var CAMERA_BEAT_ZOOM:Float = 0.025;
+	static inline var CAMERA_ZOOM_IN_TIME:Float = 0.06;
+	static inline var CAMERA_ZOOM_OUT_TIME:Float = 0.16;
+	static inline var CAMERA_BEATS_PER_BUMP:Int = 4;
+	static inline var CAMERA_FOCUS_SHIFT:Float = 0.06;
+	static inline var CAMERA_FOCUS_TIME:Float = 0.45;
 
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
@@ -104,6 +115,14 @@ class PlayState extends FlxState
 	var scoreText:FlxText;
 	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
+	var hudCamera:FlxCamera;
+	var cameraZoomTween:FlxTween;
+	var cameraFocusTween:FlxTween;
+	var beatTimes:Array<Float> = [];
+	var fallbackFocusWindows:Array<Bool> = [];
+	var nextBeatIndex:Int = 0;
+	var beatCount:Int = 0;
+	var currentFocusKey:Int = -1;
 
 	public function new(?songFolder:String = "emma", ?difficulty:String = "hard")
 	{
@@ -117,6 +136,7 @@ class PlayState extends FlxState
 		super.create();
 
 		bgColor = 0xFF0B0B12;
+		setupCameras();
 		GameSettings.load();
 		downscroll = GameSettings.downscroll;
 		strumLineY = downscroll ? FlxG.height - 150 : 50;
@@ -139,13 +159,27 @@ class PlayState extends FlxState
 			loadError = Std.string(error);
 		}
 
+		buildBeatData();
 		buildUi();
+		updateCameraFocus();
 	}
 
 	override public function destroy():Void
 	{
+		if (cameraZoomTween != null)
+			cameraZoomTween.cancel();
+
+		if (cameraFocusTween != null)
+			cameraFocusTween.cancel();
+
 		if (songAudio != null)
 			songAudio.destroy();
+
+		FlxG.camera.zoom = CAMERA_BASE_ZOOM;
+		FlxG.camera.scroll.set(0, 0);
+
+		if (hudCamera != null && FlxG.cameras.list.indexOf(hudCamera) >= 0)
+			FlxG.cameras.remove(hudCamera);
 
 		super.destroy();
 	}
@@ -163,6 +197,8 @@ class PlayState extends FlxState
 		var chartOffset = chartData == null ? 0 : chartData.offset;
 		songTime = rawSongTime + chartOffset - noteOffsetMs;
 
+		updateCameraBeats();
+		updateCameraFocus();
 		updateOpponentAutoPlay();
 
 		for (direction in arrows.justPressedDirections())
@@ -455,11 +491,13 @@ class PlayState extends FlxState
 		var title = new FlxText(0, titleY, FlxG.width, titleText, titleSize);
 		title.alignment = FlxTextAlign.CENTER;
 		title.color = FlxColor.WHITE;
+		title.cameras = [hudCamera];
 		add(title);
 
 		timerText = new FlxText(0, 28, FlxG.width - 24, "", 14);
 		timerText.alignment = FlxTextAlign.RIGHT;
 		timerText.color = FlxColor.GRAY;
+		timerText.cameras = [hudCamera];
 		add(timerText);
 
 		var healthY:Float;
@@ -478,17 +516,20 @@ class PlayState extends FlxState
 
 		var healthX = FlxG.width * 0.5 - HealthBar.BAR_WIDTH * 0.5;
 		healthBar = new HealthBar(healthX, healthY);
+		healthBar.setCamera(hudCamera);
 		add(healthBar);
 		healthBar.setHealth(health);
 
 		scoreText = new FlxText(healthX, scoreY, HealthBar.BAR_WIDTH, "SCORE 0", 16);
 		scoreText.alignment = FlxTextAlign.CENTER;
 		scoreText.color = 0xFFCCCCDD;
+		scoreText.cameras = [hudCamera];
 		add(scoreText);
 
 		judgmentText = new FlxText(0, 100, FlxG.width, "", 44);
 		judgmentText.alignment = FlxTextAlign.CENTER;
 		judgmentText.color = FlxColor.WHITE;
+		judgmentText.cameras = [hudCamera];
 		add(judgmentText);
 
 		if (chartData != null)
@@ -497,6 +538,7 @@ class PlayState extends FlxState
 				'${chartData.bpm} BPM  |  ${chartData.notes.length} NOTES  |  ${chartData.getPlayerNotes().length} PLAYER', 14);
 			chartInfo.alignment = FlxTextAlign.CENTER;
 			chartInfo.color = 0xFF8888AA;
+			chartInfo.cameras = [hudCamera];
 			add(chartInfo);
 		}
 
@@ -505,6 +547,7 @@ class PlayState extends FlxState
 			'Sick ${windows.sickWindow} / Good ${windows.goodWindow} / Bad ${windows.badWindow} / Shit ${windows.missWindow} ms', 14);
 		info.alignment = FlxTextAlign.CENTER;
 		info.color = 0xFF666688;
+		info.cameras = [hudCamera];
 		add(info);
 
 		if (loadError != null)
@@ -512,13 +555,212 @@ class PlayState extends FlxState
 			var errorText = new FlxText(0, 216, FlxG.width, loadError, 16);
 			errorText.alignment = FlxTextAlign.CENTER;
 			errorText.color = 0xFFFF4455;
+			errorText.cameras = [hudCamera];
 			add(errorText);
 		}
 
 		var hint = new FlxText(0, FlxG.height - 32, FlxG.width, "ESC: PAUSE    R: RESTART", 14);
 		hint.alignment = FlxTextAlign.CENTER;
 		hint.color = FlxColor.GRAY;
+		hint.cameras = [hudCamera];
 		add(hint);
+	}
+
+	function setupCameras():Void
+	{
+		FlxG.camera.zoom = CAMERA_BASE_ZOOM;
+		FlxG.camera.scroll.set(0, 0);
+
+		hudCamera = new FlxCamera(0, 0, FlxG.width, FlxG.height, 1);
+		hudCamera.bgColor = FlxColor.TRANSPARENT;
+		FlxG.cameras.add(hudCamera, false);
+	}
+
+	function buildBeatData():Void
+	{
+		beatTimes = [];
+		fallbackFocusWindows = [];
+		nextBeatIndex = 0;
+		beatCount = 0;
+		currentFocusKey = -1;
+
+		if (chartData == null)
+			return;
+
+		var endTime = 0.0;
+
+		for (note in chartData.notes)
+			endTime = Math.max(endTime, note.time + note.sustainLength);
+
+		if (chartData.bpmChanges.length > 0)
+		{
+			for (i in 0...chartData.bpmChanges.length)
+			{
+				var change = chartData.bpmChanges[i];
+
+				if (change.bpm <= 0)
+					continue;
+
+				var nextTime = i + 1 < chartData.bpmChanges.length ? chartData.bpmChanges[i + 1].time : endTime + 1;
+				var interval = 60000 / change.bpm;
+				var time = change.time;
+
+				while (time < nextTime)
+				{
+					addBeatTime(time);
+					time += interval;
+				}
+			}
+		}
+		else if (chartData.bpm > 0)
+		{
+			var interval = 60000 / chartData.bpm;
+			var time = 0.0;
+
+			while (time <= endTime + interval)
+			{
+				beatTimes.push(time);
+				time += interval;
+			}
+		}
+
+		if (chartData.sections.length == 0 && chartData.bpm > 0)
+			buildFallbackFocusWindows(60000 / chartData.bpm);
+	}
+
+	function addBeatTime(time:Float):Void
+	{
+		if (beatTimes.length > 0 && time - beatTimes[beatTimes.length - 1] < 0.5)
+			return;
+
+		beatTimes.push(time);
+	}
+
+	function buildFallbackFocusWindows(interval:Float):Void
+	{
+		if (chartData == null || chartData.notes.length == 0)
+			return;
+
+		var previous = false;
+		var index = 0;
+
+		while (index < beatTimes.length)
+		{
+			var start = beatTimes[index];
+			var end = start + interval * CAMERA_BEATS_PER_BUMP;
+			var playerNotes = 0;
+			var opponentNotes = 0;
+
+			for (note in chartData.notes)
+			{
+				if (note.time < start)
+					continue;
+
+				if (note.time >= end)
+					break;
+
+				if (note.isPlayer)
+					playerNotes++;
+				else
+					opponentNotes++;
+			}
+
+			var mustHit = playerNotes > opponentNotes ? true : (opponentNotes > playerNotes ? false : previous);
+			fallbackFocusWindows.push(mustHit);
+			previous = mustHit;
+			index += CAMERA_BEATS_PER_BUMP;
+		}
+	}
+
+	function updateCameraBeats():Void
+	{
+		if (beatTimes.length == 0)
+			return;
+
+		while (nextBeatIndex < beatTimes.length && beatTimes[nextBeatIndex] <= songTime)
+		{
+			nextBeatIndex++;
+			beatCount++;
+
+			if (beatCount % CAMERA_BEATS_PER_BUMP == 0)
+				bumpCamera();
+		}
+	}
+
+	function updateCameraFocus():Void
+	{
+		if (chartData == null)
+			return;
+
+		var key:Int;
+		var mustHit:Bool;
+
+		if (chartData.sections.length > 0)
+		{
+			var section = currentSection(songTime);
+			key = section.index;
+			mustHit = section.mustHitSection;
+		}
+		else
+		{
+			if (fallbackFocusWindows.length == 0)
+				return;
+
+			key = Std.int(beatCount / CAMERA_BEATS_PER_BUMP);
+
+			if (key < 0)
+				key = 0;
+			else if (key >= fallbackFocusWindows.length)
+				key = fallbackFocusWindows.length - 1;
+
+			mustHit = fallbackFocusWindows[key];
+		}
+
+		if (key == currentFocusKey)
+			return;
+
+		currentFocusKey = key;
+		var targetScrollX = (mustHit ? 1 : -1) * FlxG.width * CAMERA_FOCUS_SHIFT;
+
+		if (cameraFocusTween != null)
+			cameraFocusTween.cancel();
+
+		cameraFocusTween = FlxTween.num(FlxG.camera.scroll.x, targetScrollX, CAMERA_FOCUS_TIME, {ease: FlxEase.cubeInOut},
+			function(value:Float):Void
+			{
+				FlxG.camera.scroll.x = value;
+			});
+	}
+
+	function currentSection(time:Float):ChartSection
+	{
+		var sections = chartData.sections;
+		var current = sections[0];
+
+		for (section in sections)
+		{
+			if (section.startTime > time)
+				break;
+
+			current = section;
+		}
+
+		return current;
+	}
+
+	function bumpCamera():Void
+	{
+		if (cameraZoomTween != null)
+			cameraZoomTween.cancel();
+
+		var camera = FlxG.camera;
+		cameraZoomTween = FlxTween.tween(camera, {zoom: CAMERA_BASE_ZOOM + CAMERA_BEAT_ZOOM}, CAMERA_ZOOM_IN_TIME, {
+			ease: FlxEase.quadOut,
+			onComplete: function(_):Void
+			{
+				cameraZoomTween = FlxTween.tween(camera, {zoom: CAMERA_BASE_ZOOM}, CAMERA_ZOOM_OUT_TIME, {ease: FlxEase.quadIn});
+			}
+		});
 	}
 
 	function updateOpponentAutoPlay():Void
