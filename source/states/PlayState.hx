@@ -25,6 +25,7 @@ private typedef ChartEntry =
 {
 	var note:Note;
 	var sprite:FlxSprite;
+	var tail:FlxSprite;
 }
 
 class PlayState extends FlxState
@@ -32,6 +33,14 @@ class PlayState extends FlxState
 	static inline var RECEPTOR_Y:Float = 560;
 	static inline var LANE_WIDTH:Float = 110;
 	static inline var NOTE_SPEED:Float = 0.35;
+	static inline var SUSTAIN_WIDTH:Float = 26;
+	static inline var SUSTAIN_BASE_HEIGHT:Float = 8;
+	static inline var SUSTAIN_TICK_MS:Float = 50;
+	static inline var SUSTAIN_SCORE_PER_TICK:Int = 10;
+	static inline var SUSTAIN_HEAL_PER_TICK:Float = 0.0025;
+	static inline var SUSTAIN_DROP_DAMAGE:Float = 0.035;
+	static inline var SUSTAIN_PLAYER_ALPHA:Float = 0.6;
+	static inline var SUSTAIN_OPPONENT_ALPHA:Float = 0.3;
 	static inline var START_HEALTH:Float = 0.5;
 	static inline var SICK_HEAL:Float = 0.035;
 	static inline var GOOD_HEAL:Float = 0.015;
@@ -76,6 +85,7 @@ class PlayState extends FlxState
 	var arrows:ArrowInput;
 	var detector:NoteDetector;
 	var notes:Array<Note> = [];
+	var activeHolds:Array<Note> = [];
 	var chart:Array<ChartEntry> = [];
 	var opponentEntries:Array<ChartEntry> = [];
 	var playerReceptors:Array<FlxSprite> = [null, null, null, null];
@@ -153,9 +163,16 @@ class PlayState extends FlxState
 					playerCharacter.sing(direction);
 
 				if (result.judgment != Judgment.MISS)
+				{
+					if (result.note.hasSustain())
+						beginSustain(result.note, songTime);
+
 					flashPlayerReceptor(direction);
+				}
 			}
 		}
+
+		updateSustains();
 
 		for (note in detector.collectMissedNotes(notes, songTime))
 		{
@@ -327,12 +344,17 @@ class PlayState extends FlxState
 	{
 		for (chartNote in chartData.notes)
 		{
-			var note = new Note(chartNote.time, chartNote.direction);
+			var note = new Note(chartNote.time, chartNote.direction, chartNote.sustainLength);
 			var sprite = createNoteSprite(chartNote.direction, chartNote.isPlayer);
 			sprite.alpha = chartNote.isPlayer ? 1.0 : 0.5;
+			var tail = chartNote.sustainLength > 0 ? createSustainSprite(chartNote.direction, chartNote.isPlayer) : null;
+
+			if (tail != null)
+				add(tail);
+
 			add(sprite);
 
-			var entry:ChartEntry = {note: note, sprite: sprite};
+			var entry:ChartEntry = {note: note, sprite: sprite, tail: tail};
 			chart.push(entry);
 
 			if (chartNote.isPlayer)
@@ -370,17 +392,32 @@ class PlayState extends FlxState
 		return sprite;
 	}
 
+	function createSustainSprite(direction:NoteDirection, isPlayer:Bool):FlxSprite
+	{
+		var tail = new FlxSprite();
+		tail.makeGraphic(Std.int(SUSTAIN_WIDTH), Std.int(SUSTAIN_BASE_HEIGHT), noteColor(direction));
+		tail.origin.set(0, 0);
+		tail.alpha = isPlayer ? SUSTAIN_PLAYER_ALPHA : SUSTAIN_OPPONENT_ALPHA;
+		tail.x = laneCenter(direction, isPlayer) - SUSTAIN_WIDTH * 0.5;
+		tail.y = -100;
+		tail.visible = false;
+		return tail;
+	}
+
 	function makeFallbackNote(sprite:FlxSprite, direction:NoteDirection):Void
 	{
-		var color = switch (direction)
+		sprite.makeGraphic(56, 24, noteColor(direction));
+	}
+
+	static function noteColor(direction:NoteDirection):Int
+	{
+		return switch (direction)
 		{
 			case LEFT: 0xFFC24B99;
 			case DOWN: 0xFF00CFFF;
 			case UP: 0xFF12FA05;
 			case RIGHT: 0xFFF9393F;
 		}
-
-		sprite.makeGraphic(56, 24, color);
 	}
 
 	static function noteFrameName(direction:NoteDirection):String
@@ -512,15 +549,126 @@ class PlayState extends FlxState
 			var sprite = entry.sprite;
 
 			if (note.hit)
-			{
 				sprite.visible = false;
-				continue;
+			else
+			{
+				var y = RECEPTOR_Y - sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
+				sprite.y = y;
+				sprite.visible = y > -sprite.height && y < FlxG.height;
 			}
 
-			var y = RECEPTOR_Y - sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
-			sprite.y = y;
-			sprite.visible = y > -sprite.height && y < FlxG.height;
+			updateSustainPosition(entry);
 		}
+	}
+
+	function updateSustainPosition(entry:ChartEntry):Void
+	{
+		var tail = entry.tail;
+
+		if (tail == null)
+			return;
+
+		var note = entry.note;
+
+		if (note.sustainDropped || note.sustainCompleted || note.judgment == Judgment.MISS)
+		{
+			tail.visible = false;
+			return;
+		}
+
+		var endTime = note.getEndTime();
+
+		if (songTime >= endTime)
+		{
+			tail.visible = false;
+			return;
+		}
+
+		var top = RECEPTOR_Y - entry.sprite.height * 0.5 - (endTime - songTime) * NOTE_SPEED;
+		var bottom = note.hit ? RECEPTOR_Y : RECEPTOR_Y - entry.sprite.height * 0.5 - (note.time - songTime) * NOTE_SPEED;
+		var length = bottom - top;
+
+		if (length <= 1)
+		{
+			tail.visible = false;
+			return;
+		}
+
+		tail.y = top;
+		tail.scale.y = length / SUSTAIN_BASE_HEIGHT;
+		tail.visible = top < FlxG.height && bottom > 0;
+	}
+
+	function beginSustain(note:Note, currentTime:Float):Void
+	{
+		note.sustainActive = true;
+		note.sustainDropped = false;
+		note.sustainCompleted = false;
+		note.sustainLastTick = Math.max(note.time, currentTime);
+		activeHolds.push(note);
+	}
+
+	function updateSustains():Void
+	{
+		var i = activeHolds.length - 1;
+
+		while (i >= 0)
+		{
+			var note = activeHolds[i];
+			var endTime = note.getEndTime();
+
+			if (songTime >= endTime)
+			{
+				note.sustainActive = false;
+				note.sustainCompleted = true;
+				activeHolds.splice(i, 1);
+			}
+			else if (!arrows.isPressed(note.direction))
+			{
+				cutSustain(note);
+				activeHolds.splice(i, 1);
+			}
+			else
+			{
+				var nextTick = note.sustainLastTick + SUSTAIN_TICK_MS;
+
+				while (nextTick <= songTime && nextTick <= endTime)
+				{
+					note.sustainLastTick = nextTick;
+					awardSustainTick();
+					nextTick += SUSTAIN_TICK_MS;
+				}
+			}
+
+			i--;
+		}
+	}
+
+	function awardSustainTick():Void
+	{
+		score += SUSTAIN_SCORE_PER_TICK;
+		health = Math.min(1, health + SUSTAIN_HEAL_PER_TICK);
+
+		if (healthBar != null)
+			healthBar.setHealth(health);
+	}
+
+	function cutSustain(note:Note):Void
+	{
+		note.sustainActive = false;
+		note.sustainDropped = true;
+		health = Math.max(0, health - SUSTAIN_DROP_DAMAGE);
+
+		if (healthBar != null)
+			healthBar.setHealth(health);
+
+		if (songAudio != null)
+			songAudio.setPlayerVocalsMuted(true);
+
+		judgmentText.text = "HOLD CUT";
+		judgmentText.color = 0xFFFF66AA;
+		judgmentText.alpha = 1;
+		feedbackTime = 0.8;
 	}
 
 	function updateFeedback(elapsed:Float):Void
