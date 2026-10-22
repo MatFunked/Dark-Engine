@@ -129,7 +129,7 @@ class GameSettings
 		}
 	}
 
-	static function ensureSave():Void
+	public static function ensureSave():Void
 	{
 		if (!FlxG.save.isBound)
 			FlxG.save.bind(SAVE_NAME, SAVE_PATH);

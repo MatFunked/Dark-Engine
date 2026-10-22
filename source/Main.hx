@@ -2,6 +2,7 @@ package;
 
 import flixel.FlxG;
 import flixel.FlxGame;
+import mods.ModManager;
 import openfl.display.Sprite;
 import states.MainMenuState;
 
@@ -18,5 +19,7 @@ class Main extends Sprite
 		addChild(new FlxGame(GAME_WIDTH, GAME_HEIGHT, MainMenuState.new, TARGET_FPS, TARGET_FPS, true));
 
 		FlxG.fixedTimestep = true;
+
+		ModManager.load();
 	}
 }

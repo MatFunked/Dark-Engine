@@ -8,7 +8,7 @@ import flixel.util.FlxColor;
 
 class MainMenuState extends FlxState
 {
-	static var MENU_ITEMS:Array<String> = ["PLAY", "OPTIONS"];
+	static var MENU_ITEMS:Array<String> = ["PLAY", "MODS", "OPTIONS"];
 
 	var selected:Int = 0;
 	var menuTexts:Array<FlxText> = [];
@@ -54,6 +54,8 @@ class MainMenuState extends FlxState
 		{
 			if (selected == 0)
 				FlxG.switchState(new FreeplayState());
+			else if (selected == 1)
+				FlxG.switchState(new ModsMenuState());
 			else
 				FlxG.switchState(new OptionsState());
 		}

@@ -91,6 +91,7 @@ import sys.FileSystem;
 #if !display
 #if flash
 
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_emma_s_road___tat_ust_mod_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_charts_hard_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_meta_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_song_inst_ogg extends null { }
