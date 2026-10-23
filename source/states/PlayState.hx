@@ -130,6 +130,11 @@ class PlayState extends FlxState
 	var timerText:FlxText;
 	var scoreText:FlxText;
 	var healthBar:HealthBar;
+	#if debug
+	var debugStatsVisible:Bool = false;
+	var debugChartInfoText:FlxText;
+	var debugTimingInfoText:FlxText;
+	#end
 	var feedbackTime:Float = 0;
 	var songEventManager:SongEventManager;
 	var cameraZoomTween:FlxTween;
@@ -226,6 +231,11 @@ class PlayState extends FlxState
 		updateSongEvents();
 		updateCameraFocus();
 		updateHudText();
+
+		#if debug
+		if (FlxG.keys.justPressed.F3)
+			toggleDebugStats();
+		#end
 
 		if (activeMinigame != null)
 		{
@@ -791,27 +801,32 @@ class PlayState extends FlxState
 		judgmentText.cameras = [hudCamera];
 		add(judgmentText);
 
+		var errorY = downscroll ? 216 : 310;
+
+		#if debug
 		var chartInfoY = downscroll ? 156 : 250;
 		var windowsY = downscroll ? 180 : 274;
-		var errorY = downscroll ? 216 : 310;
 
 		if (chartData != null)
 		{
-			var chartInfo = new FlxText(0, chartInfoY, FlxG.width,
+			debugChartInfoText = new FlxText(0, chartInfoY, FlxG.width,
 				'${chartData.bpm} BPM  |  ${chartData.notes.length} NOTES  |  ${chartData.getPlayerNotes().length} PLAYER', 14);
-			chartInfo.alignment = FlxTextAlign.CENTER;
-			chartInfo.color = 0xFF8888AA;
-			chartInfo.cameras = [hudCamera];
-			add(chartInfo);
+			debugChartInfoText.alignment = FlxTextAlign.CENTER;
+			debugChartInfoText.color = 0xFF8888AA;
+			debugChartInfoText.cameras = [hudCamera];
+			debugChartInfoText.visible = debugStatsVisible;
+			add(debugChartInfoText);
 		}
 
 		var windows = detector.windows;
-		var info = new FlxText(0, windowsY, FlxG.width,
+		debugTimingInfoText = new FlxText(0, windowsY, FlxG.width,
 			'Sick ${windows.sickWindow} / Good ${windows.goodWindow} / Bad ${windows.badWindow} / Shit ${windows.missWindow} ms', 14);
-		info.alignment = FlxTextAlign.CENTER;
-		info.color = 0xFF666688;
-		info.cameras = [hudCamera];
-		add(info);
+		debugTimingInfoText.alignment = FlxTextAlign.CENTER;
+		debugTimingInfoText.color = 0xFF666688;
+		debugTimingInfoText.cameras = [hudCamera];
+		debugTimingInfoText.visible = debugStatsVisible;
+		add(debugTimingInfoText);
+		#end
 
 		if (loadError != null)
 		{
@@ -843,6 +858,19 @@ class PlayState extends FlxState
 	{
 		strumLineY = downscroll ? Math.max(STRUM_UPSCROLL_Y, FlxG.height - STRUM_DOWNSCROLL_BOTTOM_MARGIN) : STRUM_UPSCROLL_Y;
 	}
+
+	#if debug
+	function toggleDebugStats():Void
+	{
+		debugStatsVisible = !debugStatsVisible;
+
+		if (debugChartInfoText != null)
+			debugChartInfoText.visible = debugStatsVisible;
+
+		if (debugTimingInfoText != null)
+			debugTimingInfoText.visible = debugStatsVisible;
+	}
+	#end
 
 	function bindToHud(sprite:FlxSprite):Void
 	{
