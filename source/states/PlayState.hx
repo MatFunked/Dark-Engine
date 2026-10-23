@@ -120,6 +120,8 @@ class PlayState extends FlxState
 	var playerFlashTimers:Array<Float> = [0, 0, 0, 0];
 	var opponentReceptors:Array<FlxSprite> = [null, null, null, null];
 	var opponentFlashTimers:Array<Float> = [0, 0, 0, 0];
+	var laneLabels:Array<FlxText> = [];
+	var sideLabels:Array<FlxText> = [];
 	var judgmentText:FlxText;
 	var timerText:FlxText;
 	var scoreText:FlxText;
@@ -133,8 +135,9 @@ class PlayState extends FlxState
 	var nextBeatIndex:Int = 0;
 	var beatCount:Int = 0;
 	var currentFocusKey:Int = -1;
-	var minigamePausedSong:Bool = false;
 	var minigamePersistentDraw:Bool = true;
+	var minigamePersistentUpdate:Bool = false;
+	var rhythmUiHidden:Bool = false;
 
 	public function new(?songFolder:String = "emma", ?difficulty:String = "hard")
 	{
@@ -206,9 +209,6 @@ class PlayState extends FlxState
 	{
 		super.update(elapsed);
 
-		if (activeMinigame != null)
-			return;
-
 		if (songAudio != null)
 			songAudio.update();
 
@@ -220,11 +220,15 @@ class PlayState extends FlxState
 
 		updateCameraBeats();
 		updateSongEvents();
+		updateCameraFocus();
+		updateHudText();
 
 		if (activeMinigame != null)
+		{
+			updateMinigameBackground(elapsed);
 			return;
+		}
 
-		updateCameraFocus();
 		updateOpponentAutoPlay();
 
 		for (direction in arrows.justPressedDirections())
@@ -270,9 +274,6 @@ class PlayState extends FlxState
 		updateReceptorFlashes(elapsed);
 		updateFeedback(elapsed);
 
-		timerText.text = '${Std.int(songTime / 10) / 100} s';
-		scoreText.text = 'SCORE $score';
-
 		if (!resultsTriggered && songAudio != null && songAudio.isFinished())
 		{
 			finishSong();
@@ -305,6 +306,27 @@ class PlayState extends FlxState
 			openSubState(new PauseSubState(this));
 		else if (FlxG.keys.justPressed.R)
 			restartLevel();
+	}
+
+	function updateHudText():Void
+	{
+		timerText.text = '${Std.int(songTime / 10) / 100} s';
+		scoreText.text = 'SCORE $score';
+	}
+
+	function updateMinigameBackground(elapsed:Float):Void
+	{
+		if (playerCharacter != null)
+			playerCharacter.updateCharacter(elapsed);
+
+		if (opponentCharacter != null)
+			opponentCharacter.updateCharacter(elapsed);
+
+		if (girlfriendCharacter != null)
+			girlfriendCharacter.updateCharacter(elapsed);
+
+		updateReceptorFlashes(elapsed);
+		updateFeedback(elapsed);
 	}
 
 	public function pauseSong():Void
@@ -343,12 +365,11 @@ class PlayState extends FlxState
 		}
 
 		activeMinigame = minigame;
-		minigamePausedSong = songAudio != null && songAudio.isPlaying();
 		minigamePersistentDraw = persistentDraw;
+		minigamePersistentUpdate = persistentUpdate;
 		persistentDraw = false;
-
-		if (minigamePausedSong)
-			pauseSong();
+		persistentUpdate = true;
+		hideRhythmUi();
 
 		minigame.closeCallback = function():Void
 		{
@@ -373,14 +394,107 @@ class PlayState extends FlxState
 		var type = minigame.context == null ? "" : minigame.context.type;
 		activeMinigame = null;
 		persistentDraw = minigamePersistentDraw;
-
-		if (minigamePausedSong)
-		{
-			minigamePausedSong = false;
-			resumeSong();
-		}
+		persistentUpdate = minigamePersistentUpdate;
+		discardPassedMinigameNotes();
+		showRhythmUi();
 
 		FlxG.log.add('Minigame $type ended: ${minigame.result}');
+	}
+
+	function hideRhythmUi():Void
+	{
+		rhythmUiHidden = true;
+		releaseMinigameHolds();
+		setRhythmControlsVisible(false);
+		hideNoteSprites();
+	}
+
+	function showRhythmUi():Void
+	{
+		rhythmUiHidden = false;
+		setRhythmControlsVisible(true);
+		updateNotePositions();
+	}
+
+	function setRhythmControlsVisible(visible:Bool):Void
+	{
+		for (receptor in playerReceptors)
+		{
+			if (receptor != null)
+				receptor.visible = visible;
+		}
+
+		for (receptor in opponentReceptors)
+		{
+			if (receptor != null)
+				receptor.visible = visible;
+		}
+
+		for (label in laneLabels)
+			label.visible = visible;
+
+		for (label in sideLabels)
+			label.visible = visible;
+	}
+
+	function hideNoteSprites():Void
+	{
+		for (entry in chart)
+		{
+			entry.sprite.visible = false;
+
+			if (entry.tail != null)
+				entry.tail.visible = false;
+		}
+	}
+
+	function releaseMinigameHolds():Void
+	{
+		for (note in activeHolds)
+		{
+			note.sustainActive = false;
+			note.sustainCompleted = true;
+		}
+
+		activeHolds = [];
+	}
+
+	function discardPassedMinigameNotes():Void
+	{
+		if (detector == null)
+			return;
+
+		var remaining:Array<Note> = [];
+
+		for (note in notes)
+		{
+			if (!note.hit && songTime >= note.time)
+			{
+				note.hit = true;
+				note.judgment = null;
+				note.sustainActive = false;
+				note.sustainCompleted = true;
+			}
+			else
+			{
+				remaining.push(note);
+			}
+		}
+
+		notes = remaining;
+
+		for (entry in opponentEntries)
+		{
+			var note = entry.note;
+
+			if (note.hit || songTime < note.time)
+				continue;
+
+			note.hit = true;
+			note.judgment = null;
+			note.sustainActive = false;
+			note.sustainCompleted = true;
+		}
 	}
 
 	function restartLevel():Void
@@ -439,12 +553,14 @@ class PlayState extends FlxState
 				label.alignment = FlxTextAlign.CENTER;
 				label.color = isPlayer ? FlxColor.GRAY : 0xFF555566;
 				add(label);
+				laneLabels.push(label);
 			}
 
 			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, strumLineY + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
 			sideLabel.alignment = FlxTextAlign.CENTER;
 			sideLabel.color = isPlayer ? 0xFF88AAFF : 0xFF887788;
 			add(sideLabel);
+			sideLabels.push(sideLabel);
 		}
 	}
 
@@ -966,6 +1082,12 @@ class PlayState extends FlxState
 
 	function updateNotePositions():Void
 	{
+		if (rhythmUiHidden)
+		{
+			hideNoteSprites();
+			return;
+		}
+
 		for (entry in chart)
 		{
 			var note = entry.note;
