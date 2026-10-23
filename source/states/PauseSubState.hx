@@ -1,6 +1,7 @@
 package states;
 
 import flixel.FlxG;
+import flixel.FlxSprite;
 import flixel.FlxSubState;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
@@ -20,7 +21,7 @@ class PauseSubState extends FlxSubState
 
 	public function new(playState:PlayState)
 	{
-		super(0xB0000000);
+		super(FlxColor.TRANSPARENT);
 		this.playState = playState;
 	}
 
@@ -29,9 +30,26 @@ class PauseSubState extends FlxSubState
 		super.create();
 		playState.pauseSong();
 
+		var camera = playState.hudCamera;
+
+		if (camera == null)
+		{
+			var cameraList = FlxG.cameras.list;
+			camera = cameraList.length > 0 ? cameraList[cameraList.length - 1] : FlxG.camera;
+		}
+
+		cameras = [camera];
+
+		var backdrop = new FlxSprite(0, 0);
+		backdrop.makeGraphic(FlxG.width, FlxG.height, 0xB0000000);
+		backdrop.scrollFactor.set(0, 0);
+		backdrop.cameras = cameras;
+		add(backdrop);
+
 		var title = new FlxText(0, 220, FlxG.width, "PAUSED", 48);
 		title.alignment = FlxTextAlign.CENTER;
 		title.color = FlxColor.WHITE;
+		title.cameras = cameras;
 		add(title);
 
 		optionLabels = ["RESUME", "RESTART SONG", "EXIT TO MENU"];
@@ -41,6 +59,7 @@ class PauseSubState extends FlxSubState
 			var text = new FlxText(0, 330 + i * 56, FlxG.width, optionLabels[i], 28);
 			text.alignment = FlxTextAlign.CENTER;
 			text.color = FlxColor.GRAY;
+			text.cameras = cameras;
 			add(text);
 			optionTexts.push(text);
 		}
@@ -48,6 +67,7 @@ class PauseSubState extends FlxSubState
 		var hint = new FlxText(0, FlxG.height - 48, FlxG.width, "UP/DOWN: SELECT    ENTER: CONFIRM    ESC: RESUME", 16);
 		hint.alignment = FlxTextAlign.CENTER;
 		hint.color = 0xFF777788;
+		hint.cameras = cameras;
 		add(hint);
 
 		refreshOptions();

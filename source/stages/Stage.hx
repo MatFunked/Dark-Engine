@@ -310,6 +310,7 @@ class Stage extends FlxGroup
 		sprite.alpha = layer.alpha;
 		sprite.antialiasing = false;
 		sprite.immovable = true;
+		sprite.visible = layer.type != "grid";
 
 		return sprite;
 	}

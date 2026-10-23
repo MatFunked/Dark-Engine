@@ -80,10 +80,13 @@ class PlayState extends FlxState
 	static inline var CAMERA_BEATS_PER_BUMP:Int = 4;
 	static inline var CAMERA_FOCUS_SHIFT:Float = 0.06;
 	static inline var CAMERA_FOCUS_TIME:Float = 0.45;
+	static inline var DEBUG_PONG_TIME:Float = 8;
+	static inline var DEBUG_UNDERTALE_TIME:Float = 6;
 
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
 	public var activeMinigame(default, null):BaseMinigame;
+	public var hudCamera(default, null):FlxCamera;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
@@ -122,7 +125,6 @@ class PlayState extends FlxState
 	var scoreText:FlxText;
 	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
-	var hudCamera:FlxCamera;
 	var songEventManager:SongEventManager;
 	var cameraZoomTween:FlxTween;
 	var cameraFocusTween:FlxTween;
@@ -286,6 +288,17 @@ class PlayState extends FlxState
 
 			FlxG.switchState(new GameOverState(songFolder, songDifficulty));
 			return;
+		}
+
+		if (FlxG.keys.justPressed.SEVEN || FlxG.keys.justPressed.NUMPADSEVEN)
+		{
+			if (startMinigame("pong", DEBUG_PONG_TIME, "normal"))
+				return;
+		}
+		else if (FlxG.keys.justPressed.EIGHT || FlxG.keys.justPressed.NUMPADEIGHT)
+		{
+			if (startMinigame("undertale", DEBUG_UNDERTALE_TIME, "normal"))
+				return;
 		}
 
 		if (FlxG.keys.justPressed.ESCAPE)
