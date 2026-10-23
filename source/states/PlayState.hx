@@ -73,6 +73,10 @@ class PlayState extends FlxState
 	static inline var HUD_DOWNSCROLL_SCORE_OFFSET:Float = 35;
 	static inline var HUD_UPSCROLL_HEALTH_OFFSET:Float = 70;
 	static inline var HUD_UPSCROLL_SCORE_OFFSET:Float = 25;
+	static inline var STRUM_UPSCROLL_Y:Float = 80;
+	static inline var STRUM_DOWNSCROLL_BOTTOM_MARGIN:Float = 150;
+	static inline var STRUM_LABEL_OFFSET:Float = 42;
+	static inline var STRUM_SIDE_LABEL_OFFSET:Float = 68;
 	static inline var CAMERA_BASE_ZOOM:Float = 1.0;
 	static inline var CAMERA_BEAT_ZOOM:Float = 0.025;
 	static inline var CAMERA_ZOOM_IN_TIME:Float = 0.06;
@@ -154,7 +158,7 @@ class PlayState extends FlxState
 		setupCameras();
 		GameSettings.load();
 		downscroll = GameSettings.downscroll;
-		strumLineY = downscroll ? FlxG.height - 150 : 50;
+		configureScrollLayout();
 		noteOffsetMs = GameSettings.noteOffsetMs;
 		arrows = new ArrowInput();
 
@@ -531,6 +535,8 @@ class PlayState extends FlxState
 	{
 		var directions = NoteDirection.all();
 		var labels = ["LEFT", "DOWN", "UP", "RIGHT"];
+		var labelY = strumLineY + STRUM_LABEL_OFFSET;
+		var sideLabelY = strumLineY + STRUM_SIDE_LABEL_OFFSET;
 
 		for (isPlayer in [false, true])
 		{
@@ -545,20 +551,23 @@ class PlayState extends FlxState
 				receptor.makeGraphic(64, 64, FlxColor.WHITE);
 				receptor.y = strumLineY - receptor.height * 0.5;
 				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
+				bindToHud(receptor);
 				add(receptor);
 
 				receptors[cast(direction, Int)] = receptor;
 
-				var label = new FlxText(x - 50, strumLineY + 42, 100, labels[i], 14);
+				var label = new FlxText(x - 50, labelY, 100, labels[i], 14);
 				label.alignment = FlxTextAlign.CENTER;
 				label.color = isPlayer ? FlxColor.GRAY : 0xFF555566;
+				bindToHud(label);
 				add(label);
 				laneLabels.push(label);
 			}
 
-			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, strumLineY + 68, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
+			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, sideLabelY, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
 			sideLabel.alignment = FlxTextAlign.CENTER;
 			sideLabel.color = isPlayer ? 0xFF88AAFF : 0xFF887788;
+			bindToHud(sideLabel);
 			add(sideLabel);
 			sideLabels.push(sideLabel);
 		}
@@ -688,6 +697,7 @@ class PlayState extends FlxState
 
 		sprite.x = laneCenter(direction, isPlayer) - sprite.width * 0.5;
 		sprite.y = -100;
+		bindToHud(sprite);
 		return sprite;
 	}
 
@@ -700,6 +710,7 @@ class PlayState extends FlxState
 		tail.x = laneCenter(direction, isPlayer) - SUSTAIN_WIDTH * 0.5;
 		tail.y = -100;
 		tail.visible = false;
+		bindToHud(tail);
 		return tail;
 	}
 
@@ -733,8 +744,8 @@ class PlayState extends FlxState
 	function buildUi():Void
 	{
 		var titleText = chartData == null ? "DARK ENGINE" : '${chartData.songName.toUpperCase()} - ${songDifficulty.toUpperCase()}';
-		var titleY = downscroll ? 4 : 24;
-		var titleSize = downscroll ? 22 : 28;
+		var titleY = 4;
+		var titleSize = 22;
 		var title = new FlxText(0, titleY, FlxG.width, titleText, titleSize);
 		title.alignment = FlxTextAlign.CENTER;
 		title.color = FlxColor.WHITE;
@@ -773,15 +784,20 @@ class PlayState extends FlxState
 		scoreText.cameras = [hudCamera];
 		add(scoreText);
 
-		judgmentText = new FlxText(0, 100, FlxG.width, "", 44);
+		var judgmentY = downscroll ? 100 : 190;
+		judgmentText = new FlxText(0, judgmentY, FlxG.width, "", 44);
 		judgmentText.alignment = FlxTextAlign.CENTER;
 		judgmentText.color = FlxColor.WHITE;
 		judgmentText.cameras = [hudCamera];
 		add(judgmentText);
 
+		var chartInfoY = downscroll ? 156 : 250;
+		var windowsY = downscroll ? 180 : 274;
+		var errorY = downscroll ? 216 : 310;
+
 		if (chartData != null)
 		{
-			var chartInfo = new FlxText(0, 156, FlxG.width,
+			var chartInfo = new FlxText(0, chartInfoY, FlxG.width,
 				'${chartData.bpm} BPM  |  ${chartData.notes.length} NOTES  |  ${chartData.getPlayerNotes().length} PLAYER', 14);
 			chartInfo.alignment = FlxTextAlign.CENTER;
 			chartInfo.color = 0xFF8888AA;
@@ -790,7 +806,7 @@ class PlayState extends FlxState
 		}
 
 		var windows = detector.windows;
-		var info = new FlxText(0, 180, FlxG.width,
+		var info = new FlxText(0, windowsY, FlxG.width,
 			'Sick ${windows.sickWindow} / Good ${windows.goodWindow} / Bad ${windows.badWindow} / Shit ${windows.missWindow} ms', 14);
 		info.alignment = FlxTextAlign.CENTER;
 		info.color = 0xFF666688;
@@ -799,7 +815,7 @@ class PlayState extends FlxState
 
 		if (loadError != null)
 		{
-			var errorText = new FlxText(0, 216, FlxG.width, loadError, 16);
+			var errorText = new FlxText(0, errorY, FlxG.width, loadError, 16);
 			errorText.alignment = FlxTextAlign.CENTER;
 			errorText.color = 0xFFFF4455;
 			errorText.cameras = [hudCamera];
@@ -821,6 +837,16 @@ class PlayState extends FlxState
 		hudCamera = new FlxCamera(0, 0, FlxG.width, FlxG.height, 1);
 		hudCamera.bgColor = FlxColor.TRANSPARENT;
 		FlxG.cameras.add(hudCamera, false);
+	}
+
+	function configureScrollLayout():Void
+	{
+		strumLineY = downscroll ? Math.max(STRUM_UPSCROLL_Y, FlxG.height - STRUM_DOWNSCROLL_BOTTOM_MARGIN) : STRUM_UPSCROLL_Y;
+	}
+
+	function bindToHud(sprite:FlxSprite):Void
+	{
+		sprite.cameras = [hudCamera];
 	}
 
 	function buildBeatData():Void

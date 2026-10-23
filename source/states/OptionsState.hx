@@ -23,7 +23,7 @@ class OptionsState extends FlxState
 	static inline var OFFSET_STEP:Float = 5;
 	static inline var OFFSET_FINE_STEP:Float = 1;
 
-	static var ROW_LABELS:Array<String> = ["LEFT KEY", "DOWN KEY", "UP KEY", "RIGHT KEY", "NOTE OFFSET", "DOWNSCROLL"];
+	static var ROW_LABELS:Array<String> = ["LEFT KEY", "DOWN KEY", "UP KEY", "RIGHT KEY", "NOTE OFFSET", "SCROLL MODE"];
 	static var DIRECTION_LABELS:Array<String> = ["LEFT", "DOWN", "UP", "RIGHT"];
 
 	var selected:Int = 0;
@@ -188,7 +188,7 @@ class OptionsState extends FlxState
 	function toggleDownscroll():Void
 	{
 		GameSettings.setDownscroll(!GameSettings.downscroll);
-		statusText.text = GameSettings.downscroll ? "DOWNSCROLL ENABLED." : "DOWNSCROLL DISABLED.";
+		statusText.text = GameSettings.downscroll ? "SCROLL MODE: DOWNSCROLL." : "SCROLL MODE: UPSCROLL.";
 		refreshRows();
 	}
 
@@ -225,7 +225,7 @@ class OptionsState extends FlxState
 		else if (selected == OFFSET_ROW)
 			hintText.text = "LEFT/RIGHT: ADJUST OFFSET    SHIFT: 1 MS    ENTER: RESET 0    ESC: BACK";
 		else
-			hintText.text = "ENTER: TOGGLE DOWNSCROLL    UP/DOWN: SELECT    R: DEFAULTS    ESC: BACK";
+			hintText.text = "ENTER: TOGGLE SCROLL MODE    UP/DOWN: SELECT    R: DEFAULTS    ESC: BACK";
 	}
 
 	function rowValue(index:Int):String
@@ -241,13 +241,13 @@ class OptionsState extends FlxState
 		if (index == OFFSET_ROW)
 			return formatOffset(GameSettings.noteOffsetMs);
 
-		return GameSettings.downscroll ? "ON" : "OFF";
+		return GameSettings.downscroll ? "DOWNSCROLL" : "UPSCROLL";
 	}
 
 	function valueColor(index:Int, isSelected:Bool):Int
 	{
 		if (index == DOWNSCROLL_ROW)
-			return GameSettings.downscroll ? 0xFF66FF88 : 0xFF8888AA;
+			return GameSettings.downscroll ? 0xFF66FF88 : 0xFF66CCFF;
 
 		return isSelected ? FlxColor.WHITE : 0xFFB8B8CC;
 	}
