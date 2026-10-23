@@ -6,6 +6,7 @@ import flixel.FlxG;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
+import minigames.MinigameTrigger;
 
 class SongEventManager
 {
@@ -16,6 +17,7 @@ class SongEventManager
 	public static inline var ZOOM_OUT_TIME:Float = 0.16;
 	public static inline var DEFAULT_FLASH_TIME:Float = 0.2;
 	public static inline var DEFAULT_STEPS:Float = 4;
+	public static inline var DEFAULT_MINIGAME_TIME:Float = 15;
 
 	public var hasCameraFocusEvents(default, null):Bool = false;
 	public var processedEvents(default, null):Int = 0;
@@ -29,14 +31,16 @@ class SongEventManager
 	var hudBaseZoom:Float = 1;
 	var focusTween:FlxTween;
 	var zoomTween:FlxTween;
+	var onMinigameTrigger:MinigameTrigger;
 
-	public function new(events:Array<ChartEvent>, bpm:Float, gameCamera:FlxCamera, ?hudCamera:FlxCamera)
+	public function new(events:Array<ChartEvent>, bpm:Float, gameCamera:FlxCamera, ?hudCamera:FlxCamera, ?onMinigameTrigger:MinigameTrigger)
 	{
 		this.events = events == null ? [] : events.copy();
 		this.events.sort(compareEvents);
 		this.bpm = bpm;
 		this.gameCamera = gameCamera == null ? FlxG.camera : gameCamera;
 		this.hudCamera = hudCamera;
+		this.onMinigameTrigger = onMinigameTrigger;
 		gameBaseZoom = this.gameCamera == null ? 1 : this.gameCamera.zoom;
 		hudBaseZoom = hudCamera == null ? 1 : hudCamera.zoom;
 
@@ -114,6 +118,8 @@ class SongEventManager
 				handleCameraBump(event, 0.1);
 			case "cameraflash", "flashcamera":
 				handleCameraFlash(event);
+			case "triggerminigame", "startminigame":
+				handleMinigame(event);
 		}
 	}
 
@@ -220,6 +226,47 @@ class SongEventManager
 			camera.flash(color, duration, null, true);
 	}
 
+	function handleMinigame(event:ChartEvent):Void
+	{
+		var params = event.params;
+		var type = stringValue(param(params, 0), "");
+
+		if (type == "")
+		{
+			FlxG.log.warn('Minigame event at ${event.time}ms has no type');
+			return;
+		}
+
+		if (onMinigameTrigger == null)
+		{
+			FlxG.log.warn('Minigame event ignored: no trigger handler');
+			return;
+		}
+
+		var duration = DEFAULT_MINIGAME_TIME;
+		var difficulty = "normal";
+		var extraStart = 2;
+		var second = param(params, 1);
+
+		if (isNumeric(second) || isDurationString(second))
+		{
+			duration = minigameDuration(second, DEFAULT_MINIGAME_TIME);
+			difficulty = stringValue(param(params, 2), "normal");
+			extraStart = 3;
+		}
+		else if (second != null)
+		{
+			difficulty = stringValue(second, "normal");
+		}
+
+		var extra:Array<Dynamic> = [];
+
+		for (i in extraStart...params.length)
+			extra.push(params[i]);
+
+		onMinigameTrigger(type, duration, difficulty, extra);
+	}
+
 	function setCameraFocus(side:Int, duration:Float, ease:Float->Float, tweenMovement:Bool, offsetX:Float, offsetY:Float):Void
 	{
 		if (gameCamera == null)
@@ -290,6 +337,50 @@ class SongEventManager
 			value /= 1000;
 
 		return Math.max(0.001, value);
+	}
+
+	static function isDurationString(value:Dynamic):Bool
+	{
+		if (value == null || isNumeric(value))
+			return false;
+
+		var text = Std.string(value).toLowerCase();
+		var prefix = text;
+
+		if (StringTools.endsWith(text, "ms"))
+			prefix = text.substr(0, text.length - 2);
+		else if (StringTools.endsWith(text, "s"))
+			prefix = text.substr(0, text.length - 1);
+		else
+			return false;
+
+		return !Math.isNaN(Std.parseFloat(prefix));
+	}
+
+	static function minigameDuration(value:Dynamic, fallback:Float):Float
+	{
+		if (value == null)
+			return fallback;
+
+		var text = Std.string(value).toLowerCase();
+		var seconds:Float;
+
+		if (StringTools.endsWith(text, "ms"))
+			seconds = Std.parseFloat(text.substr(0, text.length - 2)) / 1000;
+		else if (StringTools.endsWith(text, "s"))
+			seconds = Std.parseFloat(text.substr(0, text.length - 1));
+		else
+		{
+			seconds = numberValue(value, fallback);
+
+			if (seconds >= 1000)
+				seconds /= 1000;
+		}
+
+		if (Math.isNaN(seconds) || seconds <= 0)
+			return fallback;
+
+		return Math.max(0.1, seconds);
 	}
 
 	static function isCameraFocusEvent(name:String):Bool

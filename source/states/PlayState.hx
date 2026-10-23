@@ -20,6 +20,9 @@ import graphics.SparrowCharacter;
 import graphics.SparrowLoader;
 import input.ArrowInput;
 import input.NoteDirection;
+import minigames.BaseMinigame;
+import minigames.MinigameContext;
+import minigames.MinigameRegistry;
 import notes.Judgment;
 import notes.Note;
 import notes.NoteDetector;
@@ -80,6 +83,7 @@ class PlayState extends FlxState
 
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
+	public var activeMinigame(default, null):BaseMinigame;
 
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
@@ -127,6 +131,8 @@ class PlayState extends FlxState
 	var nextBeatIndex:Int = 0;
 	var beatCount:Int = 0;
 	var currentFocusKey:Int = -1;
+	var minigamePausedSong:Bool = false;
+	var minigamePersistentDraw:Bool = true;
 
 	public function new(?songFolder:String = "emma", ?difficulty:String = "hard")
 	{
@@ -171,6 +177,8 @@ class PlayState extends FlxState
 
 	override public function destroy():Void
 	{
+		activeMinigame = null;
+
 		if (songEventManager != null)
 			songEventManager.destroy();
 
@@ -196,6 +204,9 @@ class PlayState extends FlxState
 	{
 		super.update(elapsed);
 
+		if (activeMinigame != null)
+			return;
+
 		if (songAudio != null)
 			songAudio.update();
 
@@ -207,6 +218,10 @@ class PlayState extends FlxState
 
 		updateCameraBeats();
 		updateSongEvents();
+
+		if (activeMinigame != null)
+			return;
+
 		updateCameraFocus();
 		updateOpponentAutoPlay();
 
@@ -291,6 +306,70 @@ class PlayState extends FlxState
 			songAudio.resume();
 	}
 
+	public function triggerMinigameEvent(type:String, duration:Float, difficulty:String, params:Array<Dynamic>):Void
+	{
+		startMinigame(type, duration, difficulty, params);
+	}
+
+	public function startMinigame(type:String, duration:Float = 15, difficulty:String = "normal", ?params:Array<Dynamic>):Bool
+	{
+		if (activeMinigame != null)
+			return false;
+
+		if (duration <= 0)
+			duration = SongEventManager.DEFAULT_MINIGAME_TIME;
+
+		var camera = hudCamera != null ? hudCamera : FlxG.camera;
+		var context = new MinigameContext(type, duration, difficulty, params, camera);
+		var minigame = MinigameRegistry.create(type, context);
+
+		if (minigame == null)
+		{
+			FlxG.log.warn('Unknown minigame type: $type');
+			return false;
+		}
+
+		activeMinigame = minigame;
+		minigamePausedSong = songAudio != null && songAudio.isPlaying();
+		minigamePersistentDraw = persistentDraw;
+		persistentDraw = false;
+
+		if (minigamePausedSong)
+			pauseSong();
+
+		minigame.closeCallback = function():Void
+		{
+			onMinigameClosed(minigame);
+		};
+
+		openSubState(minigame);
+		return true;
+	}
+
+	public function cancelMinigame():Void
+	{
+		if (activeMinigame != null)
+			activeMinigame.cancel();
+	}
+
+	function onMinigameClosed(minigame:BaseMinigame):Void
+	{
+		if (minigame != activeMinigame)
+			return;
+
+		var type = minigame.context == null ? "" : minigame.context.type;
+		activeMinigame = null;
+		persistentDraw = minigamePersistentDraw;
+
+		if (minigamePausedSong)
+		{
+			minigamePausedSong = false;
+			resumeSong();
+		}
+
+		FlxG.log.add('Minigame $type ended: ${minigame.result}');
+	}
+
 	function restartLevel():Void
 	{
 		FlxG.switchState(new PlayState(songFolder, songDifficulty));
@@ -361,7 +440,7 @@ class PlayState extends FlxState
 		var chartPath = 'assets/songs/$songFolder/charts/$songDifficulty.json';
 		var metaPath = 'assets/songs/$songFolder/meta.json';
 		chartData = ChartLoader.loadSong(chartPath, metaPath);
-		songEventManager = new SongEventManager(chartData.events, chartData.bpm, FlxG.camera, hudCamera);
+		songEventManager = new SongEventManager(chartData.events, chartData.bpm, FlxG.camera, hudCamera, triggerMinigameEvent);
 		stage = new Stage(chartData.stage);
 		insert(0, stage);
 		buildCharacters();
