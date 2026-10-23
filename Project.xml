@@ -17,8 +17,12 @@
 	<assets path="mods/OneBeat/songs" rename="assets/songs" />
 	<assets path="mods/Emma's Road - TAT UST/images/characters" rename="assets/images/characters" />
 	<assets path="mods/Emma's Road - TAT UST/data/characters" rename="assets/data/characters" />
+	<assets path="mods/Emma's Road - TAT UST/images/stages" rename="assets/images/stages" />
+	<assets path="mods/Emma's Road - TAT UST/data/stages" rename="assets/data/stages" />
 	<assets path="assets/songs" rename="assets/songs" />
 	<assets path="assets/images/notes" rename="assets/images/notes" />
+	<assets path="assets/images/stages" rename="assets/images/stages" />
+	<assets path="assets/data/stages" rename="assets/data/stages" />
 
 	<haxelib name="flixel" />
 

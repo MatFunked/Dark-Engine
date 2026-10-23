@@ -122,6 +122,9 @@ import sys.FileSystem;
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_emma_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_math_bg_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_characters_math_xml extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_stages_emmabg_sky_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_stages_emma_bg_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_data_stages_emma_bg_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_notes_notes_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_notes_notes_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__flixel_sounds_beep_ogg extends null { }

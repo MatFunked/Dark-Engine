@@ -24,6 +24,7 @@ import notes.Note;
 import notes.NoteDetector;
 import notes.TimingWindows;
 import settings.GameSettings;
+import stages.Stage;
 import ui.HealthBar;
 
 private typedef ChartEntry =
@@ -64,7 +65,6 @@ class PlayState extends FlxState
 	static inline var OPPONENT_RECEPTOR_COLOR:Int = 0xFF1E1E30;
 	static inline var NOTE_IMAGE_PATH:String = "assets/images/notes/notes.png";
 	static inline var NOTE_XML_PATH:String = "assets/images/notes/notes.xml";
-	static inline var CHARACTER_Y:Float = 96;
 	static inline var HUD_DOWNSCROLL_HEALTH_Y:Float = 40;
 	static inline var HUD_DOWNSCROLL_SCORE_OFFSET:Float = 35;
 	static inline var HUD_UPSCROLL_HEALTH_OFFSET:Float = 70;
@@ -83,8 +83,10 @@ class PlayState extends FlxState
 	var chartData:FNFChart;
 	var songAudio:SongAudio;
 	var noteFrames:FlxAtlasFrames;
+	var stage:Stage;
 	var playerCharacter:SparrowCharacter;
 	var opponentCharacter:SparrowCharacter;
+	var girlfriendCharacter:SparrowCharacter;
 	var songTime:Float = 0;
 	var elapsedSongTime:Float = 0;
 	var health:Float = START_HEALTH;
@@ -237,6 +239,9 @@ class PlayState extends FlxState
 		if (opponentCharacter != null)
 			opponentCharacter.updateCharacter(elapsed);
 
+		if (girlfriendCharacter != null)
+			girlfriendCharacter.updateCharacter(elapsed);
+
 		updateNotePositions();
 		updateReceptorFlashes(elapsed);
 		updateFeedback(elapsed);
@@ -349,6 +354,8 @@ class PlayState extends FlxState
 		var chartPath = 'assets/songs/$songFolder/charts/$songDifficulty.json';
 		var metaPath = 'assets/songs/$songFolder/meta.json';
 		chartData = ChartLoader.loadSong(chartPath, metaPath);
+		stage = new Stage(chartData.stage);
+		insert(0, stage);
 		buildCharacters();
 
 		noteFrames = SparrowLoader.load(NOTE_IMAGE_PATH, NOTE_XML_PATH);
@@ -382,14 +389,38 @@ class PlayState extends FlxState
 
 	function buildCharacters():Void
 	{
+		var opponentX = stage == null || stage.dadPosition == null ? FlxG.width * 0.28 : stage.dadPosition.x;
+		var opponentY = stage == null || stage.dadPosition == null ? FlxG.height * 0.13 : stage.dadPosition.y;
+		var playerX = stage == null || stage.bfPosition == null ? FlxG.width * 0.72 : stage.bfPosition.x;
+		var playerY = stage == null || stage.bfPosition == null ? FlxG.height * 0.13 : stage.bfPosition.y;
+
+		var insertIndex = 1;
+
+		if (stage != null && stage.gfPosition != null && hasCharacterAssets(chartData.gfVersion))
+		{
+			girlfriendCharacter = new SparrowCharacter(chartData.gfVersion, false);
+			girlfriendCharacter.placeAt(stage.gfPosition.x, stage.gfPosition.y);
+			insert(insertIndex++, girlfriendCharacter);
+		}
+
 		opponentCharacter = new SparrowCharacter(chartData.opponentCharacter, false);
 		playerCharacter = new SparrowCharacter(chartData.playerCharacter, true);
 
-		opponentCharacter.placeAt(groupCenter(false), CHARACTER_Y);
-		playerCharacter.placeAt(groupCenter(true), CHARACTER_Y);
+		opponentCharacter.placeAt(opponentX, opponentY);
+		playerCharacter.placeAt(playerX, playerY);
 
-		insert(0, opponentCharacter);
-		insert(0, playerCharacter);
+		insert(insertIndex++, opponentCharacter);
+		insert(insertIndex++, playerCharacter);
+	}
+
+	static function hasCharacterAssets(characterName:String):Bool
+	{
+		if (characterName == null || characterName == "")
+			return false;
+
+		return Assets.exists('assets/data/characters/$characterName.xml')
+			&& Assets.exists('assets/images/characters/$characterName.png')
+			&& Assets.exists('assets/images/characters/$characterName.xml');
 	}
 
 	function buildChart():Void
