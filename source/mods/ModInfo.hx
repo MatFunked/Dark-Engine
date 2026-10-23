@@ -9,9 +9,11 @@ class ModInfo
 	public var enabledByDefault:Bool;
 	public var folder:String;
 	public var path:String;
+	public var songs:Array<String>;
 	public var error:String;
 
-	public function new(id:String, name:String, description:String, dependencies:Array<String>, enabledByDefault:Bool, folder:String, path:String)
+	public function new(id:String, name:String, description:String, dependencies:Array<String>, enabledByDefault:Bool, folder:String, path:String,
+			?songs:Array<String>)
 	{
 		this.id = id;
 		this.name = name;
@@ -20,6 +22,7 @@ class ModInfo
 		this.enabledByDefault = enabledByDefault;
 		this.folder = folder;
 		this.path = path;
+		this.songs = songs == null ? [] : songs;
 	}
 
 	public static function fromJson(json:Dynamic, folder:String, path:String):ModInfo

@@ -5,6 +5,7 @@ import flixel.FlxState;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
+import mods.ModManager;
 import openfl.utils.Assets;
 
 private typedef SongEntry =
@@ -40,6 +41,7 @@ class FreeplayState extends FlxState
 		super.create();
 
 		bgColor = 0xFF0D1018;
+		ModManager.reload();
 		songs = discoverSongs();
 		buildUi();
 
@@ -276,6 +278,9 @@ class FreeplayState extends FlxState
 				continue;
 
 			if (!Assets.exists('$SONG_ROOT$folder/meta.json'))
+				continue;
+
+			if (!ModManager.isSongAvailable(folder))
 				continue;
 
 			folders.push(folder);

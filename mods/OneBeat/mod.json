@@ -1,0 +1,7 @@
+{
+  "id": "onebeat",
+  "name": "OneBeat",
+  "description": "OneBeat mod pack featuring the song math.",
+  "dependencies": [],
+  "enabledByDefault": true
+}

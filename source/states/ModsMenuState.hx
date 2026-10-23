@@ -38,7 +38,7 @@ class ModsMenuState extends FlxState
 	{
 		super.create();
 
-		ModManager.load();
+		ModManager.reload();
 		mods = ModManager.mods;
 		bgColor = 0xFF0D1018;
 
@@ -291,6 +291,7 @@ class ModsMenuState extends FlxState
 		lines.push('FOLDER: ${mod.folder}');
 		lines.push('DEFAULT: ${mod.enabledByDefault ? "ON" : "OFF"}');
 		lines.push('STATUS: $status');
+		lines.push('SONGS: ${mod.songs.length}');
 		lines.push("");
 
 		if (mod.error != null)

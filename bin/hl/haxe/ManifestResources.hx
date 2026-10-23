@@ -92,6 +92,10 @@ import sys.FileSystem;
 #if flash
 
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_emma_s_road___tat_ust_mod_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_emma_s_road___tat_ust_songs_emma_meta_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_emma_s_road___tat_ust_songs_soft_trolling_meta_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_onebeat_mod_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__mods_onebeat_songs_math_meta_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_charts_hard_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_meta_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_emma_song_inst_ogg extends null { }
@@ -101,6 +105,11 @@ import sys.FileSystem;
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_meta_json extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_song_inst_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_soft_trolling_song_voices_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_math_charts_hard_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_math_meta_json extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_math_song_inst_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_math_song_voices_gf_ogg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_songs_math_song_voices_math_ogg extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_bfpapel_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_bfpapel_xml extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_images_characters_emma_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }

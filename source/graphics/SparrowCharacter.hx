@@ -13,6 +13,12 @@ private typedef CharacterAnimation =
 	var looped:Bool;
 }
 
+private typedef CharacterOffset =
+{
+	var x:Float;
+	var y:Float;
+}
+
 class SparrowCharacter extends FlxSprite
 {
 	static inline var CHARACTER_SCALE:Float = 0.7;
@@ -23,8 +29,12 @@ class SparrowCharacter extends FlxSprite
 	public var isPlaceholder(default, null):Bool = false;
 
 	var animations:Map<String, CharacterAnimation> = [];
+	var animationOffsets:Map<String, CharacterOffset> = [];
 	var idleAnimation:String = "idle";
 	var singTimer:Float = 0;
+	var baseOffsetX:Float = 0;
+	var baseOffsetY:Float = 0;
+	var currentAnimation:String = null;
 
 	public function new(characterName:String, isPlayer:Bool)
 	{
@@ -42,14 +52,11 @@ class SparrowCharacter extends FlxSprite
 		var name = singAnimationName(direction);
 
 		if (!animation.exists(name))
-		{
 			name = baseSingAnimationName(direction);
 
-			if (!animation.exists(name))
-				return;
-		}
+		if (!playAnimation(name, true))
+			return;
 
-		animation.play(name, true);
 		singTimer = SING_HOLD_TIME;
 	}
 
@@ -67,8 +74,22 @@ class SparrowCharacter extends FlxSprite
 	public function placeAt(centerX:Float, topY:Float):Void
 	{
 		updateHitbox();
+		captureBaseOffset();
+		applyCurrentOffset();
 		x = centerX - width * 0.5;
 		y = topY;
+	}
+
+	public function playAnimation(name:String, force:Bool = false):Bool
+	{
+		if (isPlaceholder || name == null || !animation.exists(name))
+			return false;
+
+		animation.play(name, force);
+		currentAnimation = name;
+		applyCurrentOffset();
+
+		return true;
 	}
 
 	function loadCharacter(characterName:String):Void
@@ -100,6 +121,7 @@ class SparrowCharacter extends FlxSprite
 		this.frames = frames;
 		scale.set(CHARACTER_SCALE, CHARACTER_SCALE);
 		updateHitbox();
+		captureBaseOffset();
 		buildAnimations();
 		playIdle();
 	}
@@ -161,6 +183,7 @@ class SparrowCharacter extends FlxSprite
 			var rawLooped = node.get("loop");
 			var looped = rawLooped == null || rawLooped == "true";
 			animations.set(name, {prefix: prefix, frameRate: frameRate, looped: looped});
+			animationOffsets.set(name, {x: readOffset(node.get("x")), y: readOffset(node.get("y"))});
 		}
 	}
 
@@ -193,11 +216,32 @@ class SparrowCharacter extends FlxSprite
 
 	function playIdle():Void
 	{
-		if (isPlaceholder || !animation.exists(idleAnimation))
+		if (animation.curAnim == null || animation.curAnim.name != idleAnimation)
+			playAnimation(idleAnimation);
+	}
+
+	function captureBaseOffset():Void
+	{
+		baseOffsetX = offset.x;
+		baseOffsetY = offset.y;
+	}
+
+	function applyCurrentOffset():Void
+	{
+		if (isPlaceholder || currentAnimation == null)
 			return;
 
-		if (animation.curAnim == null || animation.curAnim.name != idleAnimation)
-			animation.play(idleAnimation);
+		var data = animationOffsets.get(currentAnimation);
+		offset.set(baseOffsetX + (data == null ? 0 : data.x), baseOffsetY + (data == null ? 0 : data.y));
+	}
+
+	static function readOffset(value:String):Float
+	{
+		if (value == null)
+			return 0;
+
+		var parsed = Std.parseFloat(value);
+		return Math.isNaN(parsed) ? 0 : parsed;
 	}
 
 	function makePlaceholder():Void
