@@ -8,7 +8,7 @@ import flixel.util.FlxColor;
 
 class MainMenuState extends FlxState
 {
-	static var MENU_ITEMS:Array<String> = ["PLAY", "MODS", "CHAR EDITOR", "OPTIONS"];
+	static var MENU_ITEMS:Array<String> = ["PLAY", "MODS", "EDITORS", "OPTIONS"];
 
 	var selected:Int = 0;
 	var menuTexts:Array<FlxText> = [];
@@ -33,7 +33,7 @@ class MainMenuState extends FlxState
 			menuTexts.push(text);
 		}
 
-		var hint = new FlxText(0, FlxG.height - 40, FlxG.width, "UP/DOWN: SELECT    ENTER: CONFIRM", 16);
+		var hint = new FlxText(0, FlxG.height - 40, FlxG.width, "UP/DOWN: SELECT    ENTER: CONFIRM    TAB: EDITORS", 16);
 		hint.alignment = FlxTextAlign.CENTER;
 		hint.color = FlxColor.GRAY;
 		add(hint);
@@ -50,6 +50,12 @@ class MainMenuState extends FlxState
 		else if (FlxG.keys.justPressed.DOWN)
 			moveSelection(1);
 
+		if (FlxG.keys.justPressed.TAB)
+		{
+			FlxG.switchState(new EditorsMenuState());
+			return;
+		}
+
 		if (FlxG.keys.justPressed.ENTER || FlxG.keys.justPressed.SPACE)
 		{
 			if (selected == 0)
@@ -57,7 +63,7 @@ class MainMenuState extends FlxState
 			else if (selected == 1)
 				FlxG.switchState(new ModsMenuState());
 			else if (selected == 2)
-				FlxG.switchState(new CharacterEditorState());
+				FlxG.switchState(new EditorsMenuState());
 			else
 				FlxG.switchState(new OptionsState());
 		}

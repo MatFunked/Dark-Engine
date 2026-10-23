@@ -24,9 +24,11 @@ class SparrowCharacter extends FlxSprite
 	static inline var CHARACTER_SCALE:Float = 0.7;
 	static inline var SING_HOLD_TIME:Float = 0.36;
 
+	public var requestedCharacterName(default, null):String;
 	public var characterName(default, null):String;
 	public var isPlayer(default, null):Bool;
 	public var isPlaceholder(default, null):Bool = false;
+	public var usedFallback(default, null):Bool = false;
 
 	var animations:Map<String, CharacterAnimation> = [];
 	var animationOffsets:Map<String, CharacterOffset> = [];
@@ -39,8 +41,16 @@ class SparrowCharacter extends FlxSprite
 	public function new(characterName:String, isPlayer:Bool)
 	{
 		super();
+		this.requestedCharacterName = characterName;
 		this.characterName = characterName;
 		this.isPlayer = isPlayer;
+
+		if (BrokenCharacter.isRequested(characterName))
+		{
+			useBroken();
+			return;
+		}
+
 		loadCharacter(characterName);
 	}
 
@@ -95,26 +105,29 @@ class SparrowCharacter extends FlxSprite
 	function loadCharacter(characterName:String):Void
 	{
 		var metadata = loadMetadata(characterName);
-		var flipValue = metadata == null ? null : metadata.get("flipX");
-		var antialiasingValue = metadata == null ? null : metadata.get("antialiasing");
 
-		flipX = metadata == null ? isPlayer : flipValue == "true";
+		if (metadata == null || metadata.nodeName != "character")
+		{
+			useBroken('missing or invalid character XML for "$characterName"');
+			return;
+		}
+
+		var flipValue = metadata.get("flipX");
+		var antialiasingValue = metadata.get("antialiasing");
+
+		flipX = flipValue == "true";
 
 		if (antialiasingValue == "false")
 			antialiasing = false;
 
 		loadDefaultAnimations(characterName);
-
-		if (metadata != null)
-			loadMetadataAnimations(metadata);
+		loadMetadataAnimations(metadata);
 
 		var frames = SparrowLoader.load('assets/images/characters/$characterName.png', 'assets/images/characters/$characterName.xml');
 
 		if (frames == null)
 		{
-			isPlaceholder = true;
-			FlxG.log.warn('Missing character atlas for "$characterName"; using placeholder');
-			makePlaceholder();
+			useBroken('missing or invalid character atlas for "$characterName"');
 			return;
 		}
 
@@ -123,6 +136,13 @@ class SparrowCharacter extends FlxSprite
 		updateHitbox();
 		captureBaseOffset();
 		buildAnimations();
+
+		if (!animation.exists(idleAnimation))
+		{
+			useBroken('missing idle animation for "$characterName"');
+			return;
+		}
+
 		playIdle();
 	}
 
@@ -244,9 +264,24 @@ class SparrowCharacter extends FlxSprite
 		return Math.isNaN(parsed) ? 0 : parsed;
 	}
 
-	function makePlaceholder():Void
+	function useBroken(?reason:String):Void
 	{
-		makeGraphic(180, 360, isPlayer ? 0xFF334477 : 0xFF553344);
+		usedFallback = requestedCharacterName != null && StringTools.trim(requestedCharacterName).toLowerCase() != BrokenCharacter.NAME;
+		characterName = BrokenCharacter.NAME;
+		isPlaceholder = true;
+		singTimer = 0;
+		currentAnimation = null;
+		baseOffsetX = 0;
+		baseOffsetY = 0;
+		flipX = false;
+		scale.set(1, 1);
+		animation.destroyAnimations();
+		animations.clear();
+		animationOffsets.clear();
+		BrokenCharacter.apply(this);
+
+		if (reason != null)
+			FlxG.log.warn('Using broken character for "$requestedCharacterName": $reason');
 	}
 
 	function singAnimationName(direction:NoteDirection):String

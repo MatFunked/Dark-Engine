@@ -7,6 +7,7 @@ import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
+import graphics.BrokenCharacter;
 import graphics.SparrowLoader;
 import openfl.display.BitmapData;
 import openfl.utils.Assets;
@@ -308,19 +309,38 @@ class CharacterEditorState extends FlxState
 		dirty = false;
 		exitArmed = false;
 
-		var frames = entry == null ? null : loadFrames(entry);
+		var brokenEntry = entry == null || isBrokenEntry(entry);
+		var fallbackReason:String = null;
+		var frames:FlxAtlasFrames = null;
 
-		if (frames == null)
+		if (!brokenEntry)
+		{
+			if (currentConfig == null)
+				fallbackReason = "MISSING CONFIG";
+			else if (currentConfig.error != null || currentConfig.root == null || currentConfig.root.nodeName != "character")
+				fallbackReason = "INVALID CONFIG";
+			else
+			{
+				frames = loadFrames(entry);
+
+				if (frames == null)
+					fallbackReason = "MISSING OR INVALID ATLAS";
+				else if (!hasPrefix(frames, animations[0].prefix))
+					fallbackReason = "MISSING IDLE ANIMATION";
+			}
+		}
+
+		if (brokenEntry || fallbackReason != null)
 			createPlaceholderPreview();
 		else
 			createSpritePreview(entry, frames);
 
 		playSelectedAnimation();
 
-		if (previewUsesPlaceholder)
-			setStatus("PLACEHOLDER: MISSING OR INVALID ATLAS", 0xFFFFCC55);
-		else if (currentConfig != null && currentConfig.error != null)
-			setStatus(currentConfig.error + " - DEFAULTS LOADED", 0xFFFFCC55);
+		if (brokenEntry)
+			setStatus("BROKEN DEFAULT CHARACTER", 0xFF88AAFF);
+		else if (fallbackReason != null)
+			setStatus('BROKEN FALLBACK: $fallbackReason', 0xFFFFCC55);
 		else
 			setStatus("READY - ADJUST OFFSETS WITH ARROWS", 0xFF66FF88);
 	}
@@ -364,8 +384,7 @@ class CharacterEditorState extends FlxState
 	function createPlaceholderPreview():Void
 	{
 		preview = new FlxSprite();
-		preview.makeGraphic(180, 360, 0xFF3B4258);
-		preview.antialiasing = false;
+		BrokenCharacter.apply(preview);
 		preview.x = CENTER_X - preview.width * 0.5;
 		preview.y = FLOOR_Y - preview.height;
 		previewUsesPlaceholder = true;
@@ -499,10 +518,11 @@ class CharacterEditorState extends FlxState
 
 			var entry = characterEntries[index];
 			var selected = index == selectedCharacter;
-			var hasAtlas = entryHasAtlas(entry);
+			var broken = isBrokenEntry(entry);
+			var ready = broken || (entryHasAtlas(entry) && entryHasConfig(entry));
 
-			text.text = (selected ? "> " : "  ") + entry.name + (hasAtlas ? "" : "  [!]");
-			text.color = selected ? FlxColor.WHITE : (hasAtlas ? 0xFF8888AA : 0xFF996677);
+			text.text = (selected ? "> " : "  ") + entry.name + (broken ? "  [DEFAULT]" : (ready ? "" : "  [!]"));
+			text.color = selected ? FlxColor.WHITE : (ready ? 0xFF8888AA : 0xFF996677);
 		}
 	}
 
@@ -532,7 +552,8 @@ class CharacterEditorState extends FlxState
 			return;
 		}
 
-		subtitleText.text = 'CHARACTER: ${entry.name}    ${previewUsesPlaceholder ? "PLACEHOLDER" : "ATLAS OK"}    TAB / SHIFT+TAB TO CYCLE';
+		var state = isBrokenEntry(entry) ? "DEFAULT FALLBACK" : (previewUsesPlaceholder ? "BROKEN FALLBACK" : "ATLAS OK");
+		subtitleText.text = 'CHARACTER: ${entry.name}    $state    TAB / SHIFT+TAB TO CYCLE';
 	}
 
 	function refreshDetails():Void
@@ -550,14 +571,18 @@ class CharacterEditorState extends FlxState
 		lines.push('FRAMES: ${countFrames(previewFrames, info.prefix)}');
 		lines.push('OFFSET: X ${formatInt(info.offsetX)}    Y ${formatInt(info.offsetY)}');
 
-		if (previewUsesPlaceholder)
-			lines.push("ATLAS: PLACEHOLDER BLOCK");
+		if (isBrokenEntry(entry))
+			lines.push("ATLAS: BUILT-IN BROKEN CHARACTER");
+		else if (previewUsesPlaceholder)
+			lines.push("ATLAS: BROKEN FALLBACK");
 		else if (!info.available)
 			lines.push("ATLAS: ANIMATION MISSING");
 		else
 			lines.push("ATLAS: OK");
 
-		if (currentConfig != null && currentConfig.error != null)
+		if (isBrokenEntry(entry))
+			lines.push("CONFIG: BUILT-IN FALLBACK");
+		else if (currentConfig != null && currentConfig.error != null)
 			lines.push('CONFIG: ${currentConfig.error}');
 		else
 			lines.push('CONFIG: ${configPathFor(entry)}');
@@ -605,6 +630,12 @@ class CharacterEditorState extends FlxState
 		if (entry == null)
 		{
 			setStatus("NO CHARACTER SELECTED", 0xFFFF4455);
+			return;
+		}
+
+		if (isBrokenEntry(entry))
+		{
+			setStatus("BROKEN IS THE BUILT-IN FALLBACK - NOTHING TO SAVE", 0xFFFFCC55);
 			return;
 		}
 
@@ -751,6 +782,9 @@ class CharacterEditorState extends FlxState
 			scanPhysicalCharacters(entries, '$root/data/characters', '$root/images/characters');
 		#end
 
+		var brokenEntry = ensureEntry(entries, BrokenCharacter.NAME);
+		brokenEntry.name = BrokenCharacter.NAME;
+
 		var result:Array<CharacterEntry> = [];
 
 		for (entry in entries)
@@ -760,9 +794,6 @@ class CharacterEditorState extends FlxState
 		{
 			return compareNames(a.name, b.name);
 		});
-
-		if (result.length == 0)
-			result.push(createEntry("placeholder"));
 
 		return result;
 	}
@@ -955,7 +986,7 @@ class CharacterEditorState extends FlxState
 
 	static function buildAnimationData(entry:CharacterEntry, config:CharacterConfig):Array<AnimationInfo>
 	{
-		var characterName = entry == null ? "placeholder" : entry.name;
+		var characterName = entry == null ? BrokenCharacter.NAME : entry.name;
 		var result:Array<AnimationInfo> = [];
 
 		for (i in 0...ANIMATION_NAMES.length)
@@ -1056,6 +1087,17 @@ class CharacterEditorState extends FlxState
 		#end
 
 		return entry.imageAsset != null && entry.xmlAsset != null && Assets.exists(entry.imageAsset) && Assets.exists(entry.xmlAsset);
+	}
+
+	static function entryHasConfig(entry:CharacterEntry):Bool
+	{
+		var config = loadConfig(entry);
+		return config != null && config.error == null && config.root != null && config.root.nodeName == "character";
+	}
+
+	static function isBrokenEntry(entry:CharacterEntry):Bool
+	{
+		return entry != null && normalizeKey(entry.name) == BrokenCharacter.NAME;
 	}
 
 	static function hasPrefix(frames:FlxAtlasFrames, prefix:String):Bool
