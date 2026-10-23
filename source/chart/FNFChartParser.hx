@@ -153,11 +153,12 @@ class FNFChartParser
 		}
 
 		chart.notes.sort(compareNotes);
-		buildCameraSections(root, songData, chart);
+		chart.events = parseEvents(root, songData);
+		buildCameraSections(chart);
 		return chart;
 	}
 
-	static function buildCameraSections(root:Dynamic, songData:Dynamic, chart:FNFChart):Void
+	static function parseEvents(root:Dynamic, songData:Dynamic):Array<ChartEvent>
 	{
 		var rawEvents:Dynamic = Reflect.field(root, "events");
 
@@ -165,22 +166,39 @@ class FNFChartParser
 			rawEvents = Reflect.field(songData, "events");
 
 		if (!Std.isOfType(rawEvents, Array))
-			return;
+			return [];
 
-		var events:Array<Dynamic> = cast rawEvents;
+		var events:Array<ChartEvent> = [];
+
+		for (rawEvent in cast(rawEvents, Array<Dynamic>))
+		{
+			if (rawEvent == null)
+				continue;
+
+			var name = stringValue(Reflect.field(rawEvent, "name"), "");
+
+			if (name == "")
+				continue;
+
+			var rawParams:Dynamic = Reflect.field(rawEvent, "params");
+			var params:Array<Dynamic> = Std.isOfType(rawParams, Array) ? cast rawParams : [];
+			events.push(new ChartEvent(name, numberValue(Reflect.field(rawEvent, "time"), 0), params));
+		}
+
+		events.sort(compareEvents);
+		return events;
+	}
+
+	static function buildCameraSections(chart:FNFChart):Void
+	{
 		var cameraEvents:Array<{time:Float, mustHit:Bool}> = [];
 
-		for (rawEvent in events)
+		for (event in chart.events)
 		{
-			if (rawEvent == null || stringValue(Reflect.field(rawEvent, "name"), "") != "Camera Movement")
+			if (event.name != "Camera Movement")
 				continue;
 
-			var params:Dynamic = Reflect.field(rawEvent, "params");
-
-			if (!Std.isOfType(params, Array))
-				continue;
-
-			var values:Array<Dynamic> = cast params;
+			var values = event.params;
 
 			if (values.length == 0)
 				continue;
@@ -196,7 +214,7 @@ class FNFChartParser
 			if (side < 0)
 				continue;
 
-			cameraEvents.push({time: numberValue(Reflect.field(rawEvent, "time"), 0), mustHit: side >= 1});
+			cameraEvents.push({time: event.time, mustHit: side >= 1});
 		}
 
 		if (cameraEvents.length == 0)
@@ -311,6 +329,7 @@ class FNFChartParser
 		}
 
 		chart.notes.sort(compareNotes);
+		chart.events = parseEvents(root, songData);
 		return chart;
 	}
 
@@ -323,6 +342,16 @@ class FNFChartParser
 			case ChartTimeMode.SectionOffsetSteps: sectionStart + rawTime * (60000.0 / bpm / 4.0);
 			case ChartTimeMode.SectionOffsetBeats: sectionStart + rawTime * (60000.0 / bpm);
 		};
+	}
+
+	static function compareEvents(a:ChartEvent, b:ChartEvent):Int
+	{
+		if (a.time < b.time)
+			return -1;
+		if (a.time > b.time)
+			return 1;
+
+		return 0;
 	}
 
 	static function compareNotes(a:ChartNote, b:ChartNote):Int

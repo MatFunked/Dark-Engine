@@ -18,6 +18,7 @@ class FNFChart
 	public var sections:Array<ChartSection> = [];
 	public var bpmChanges:Array<BpmChange> = [];
 	public var notes:Array<ChartNote> = [];
+	public var events:Array<ChartEvent> = [];
 
 	public function new() {}
 

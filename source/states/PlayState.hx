@@ -15,6 +15,7 @@ import audio.SongAudio;
 import chart.ChartLoader;
 import chart.ChartSection;
 import chart.FNFChart;
+import events.SongEventManager;
 import graphics.SparrowCharacter;
 import graphics.SparrowLoader;
 import input.ArrowInput;
@@ -118,6 +119,7 @@ class PlayState extends FlxState
 	var healthBar:HealthBar;
 	var feedbackTime:Float = 0;
 	var hudCamera:FlxCamera;
+	var songEventManager:SongEventManager;
 	var cameraZoomTween:FlxTween;
 	var cameraFocusTween:FlxTween;
 	var beatTimes:Array<Float> = [];
@@ -164,10 +166,14 @@ class PlayState extends FlxState
 		buildBeatData();
 		buildUi();
 		updateCameraFocus();
+		updateSongEvents();
 	}
 
 	override public function destroy():Void
 	{
+		if (songEventManager != null)
+			songEventManager.destroy();
+
 		if (cameraZoomTween != null)
 			cameraZoomTween.cancel();
 
@@ -200,6 +206,7 @@ class PlayState extends FlxState
 		songTime = rawSongTime + chartOffset - noteOffsetMs;
 
 		updateCameraBeats();
+		updateSongEvents();
 		updateCameraFocus();
 		updateOpponentAutoPlay();
 
@@ -354,6 +361,7 @@ class PlayState extends FlxState
 		var chartPath = 'assets/songs/$songFolder/charts/$songDifficulty.json';
 		var metaPath = 'assets/songs/$songFolder/meta.json';
 		chartData = ChartLoader.loadSong(chartPath, metaPath);
+		songEventManager = new SongEventManager(chartData.events, chartData.bpm, FlxG.camera, hudCamera);
 		stage = new Stage(chartData.stage);
 		insert(0, stage);
 		buildCharacters();
@@ -718,9 +726,15 @@ class PlayState extends FlxState
 		}
 	}
 
+	function updateSongEvents():Void
+	{
+		if (songEventManager != null)
+			songEventManager.update(songTime);
+	}
+
 	function updateCameraFocus():Void
 	{
-		if (chartData == null)
+		if (chartData == null || (songEventManager != null && songEventManager.hasCameraFocusEvents))
 			return;
 
 		var key:Int;
@@ -781,6 +795,12 @@ class PlayState extends FlxState
 
 	function bumpCamera():Void
 	{
+		if (songEventManager != null)
+		{
+			songEventManager.bumpCamera(CAMERA_BEAT_ZOOM);
+			return;
+		}
+
 		if (cameraZoomTween != null)
 			cameraZoomTween.cancel();
 
