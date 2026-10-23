@@ -10,7 +10,7 @@ import flixel.util.FlxColor;
 class EditorsMenuState extends FlxState
 {
 	static var MENU_ITEMS:Array<String> = ["CHARACTER EDITOR", "STAGE EDITOR", "CHART EDITOR", "BACK"];
-	static var MENU_TAGS:Array<String> = ["", "PLACEHOLDER", "PLACEHOLDER", ""];
+	static var MENU_TAGS:Array<String> = ["", "", "PLACEHOLDER", ""];
 
 	static inline var ROW_TOP:Float = 258;
 	static inline var ROW_SPACING:Float = 58;
@@ -89,7 +89,7 @@ class EditorsMenuState extends FlxState
 			case 0:
 				FlxG.switchState(new CharacterEditorState());
 			case 1:
-				setStatus("STAGE EDITOR IS A PLACEHOLDER", 0xFFFFCC55);
+				FlxG.switchState(new StageEditorState());
 			case 2:
 				setStatus("CHART EDITOR IS A PLACEHOLDER", 0xFFFFCC55);
 			case 3:
@@ -121,7 +121,7 @@ class EditorsMenuState extends FlxState
 			case 0:
 				setStatus("EDIT CHARACTER ANIMATION OFFSETS", 0xFF66FF88);
 			case 1:
-				setStatus("STAGE EDITOR IS A PLACEHOLDER", 0xFFFFCC55);
+				setStatus("EDIT PARALLAX LAYERS AND CHARACTER POSITIONS", 0xFF66FF88);
 			case 2:
 				setStatus("CHART EDITOR IS A PLACEHOLDER", 0xFFFFCC55);
 			case 3:
