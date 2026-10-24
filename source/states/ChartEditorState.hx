@@ -84,6 +84,10 @@ class ChartEditorState extends FlxState
 	static inline var EVENT_ROWS:Int = 12;
 	static inline var EVENT_ROW_HEIGHT:Float = 24;
 	static inline var EVENT_LIST_Y:Float = 176;
+	static inline var WAVEFORM_BINS:Int = 512;
+	static inline var TIMELINE_BARS:Int = 96;
+	static inline var GRID_WAVE_BARS:Int = 32;
+	static inline var TIMELINE_BAR_WIDTH:Float = 5;
 
 	static var SNAP_LABELS:Array<String> = ["1/4", "1/8", "1/12", "1/16", "1/24", "1/32", "1/48", "1/64"];
 	static var SNAP_DIVISIONS:Array<Float> = [1, 2, 3, 4, 6, 8, 12, 16];
@@ -117,18 +121,25 @@ class ChartEditorState extends FlxState
 	var chartAssetPath:String;
 	var chartPhysicalPath:String;
 	var audio:FlxSound;
+	var voices:FlxSound;
+	var voicesFileName:String;
 	var noteFrames:FlxAtlasFrames;
 
 	var noteLayer:FlxSpriteGroup;
 	var tailLayer:FlxSpriteGroup;
 	var eventLayer:FlxSpriteGroup;
 	var receptorLayer:FlxSpriteGroup;
+	var gridWaveLayer:FlxSpriteGroup;
+	var timelineWaveLayer:FlxSpriteGroup;
 	var cursorSprite:FlxSprite;
 	var timelineFill:FlxSprite;
 	var timelineMarker:FlxSprite;
 	var noteSprites:Array<FlxSprite> = [];
 	var tailSprites:Array<FlxSprite> = [];
 	var eventSprites:Array<FlxSprite> = [];
+	var timelineBars:Array<FlxSprite> = [];
+	var gridWaveBars:Array<FlxSprite> = [];
+	var densityBins:Array<Float> = [];
 
 	var titleText:FlxText;
 	var subtitleText:FlxText;
@@ -616,6 +627,7 @@ class ChartEditorState extends FlxState
 		dirty = true;
 		exitArmed = false;
 		setStatus(message + " - UNSAVED", 0xFFFFAA33);
+		rebuildWaveform();
 		refreshChartStatus();
 		refreshRuntimeText();
 	}
@@ -678,10 +690,24 @@ class ChartEditorState extends FlxState
 		addRect(GRID_X, TIMELINE_Y, GRID_W, TIMELINE_H, 0xFF1B2433);
 
 		timelineFill = new FlxSprite(GRID_X, TIMELINE_Y);
-		timelineFill.makeGraphic(Std.int(GRID_W), Std.int(TIMELINE_H), 0xFF66FF88);
+		timelineFill.makeGraphic(Std.int(GRID_W), Std.int(TIMELINE_H), 0xFF2A6A4A);
+		timelineFill.alpha = 0.35;
 		timelineFill.origin.set(0, 0);
 		timelineFill.scale.x = 0;
 		add(timelineFill);
+
+		timelineWaveLayer = new FlxSpriteGroup();
+		add(timelineWaveLayer);
+
+		for (i in 0...TIMELINE_BARS)
+		{
+			var bar = new FlxSprite();
+			bar.makeGraphic(Std.int(TIMELINE_BAR_WIDTH), 1, 0xFF66FF88);
+			bar.origin.set(0, 0);
+			bar.visible = false;
+			timelineWaveLayer.add(bar);
+			timelineBars.push(bar);
+		}
 
 		timelineMarker = new FlxSprite(GRID_X, TIMELINE_Y - 4);
 		timelineMarker.makeGraphic(2, Std.int(TIMELINE_H + 8), FlxColor.WHITE);
@@ -695,8 +721,14 @@ class ChartEditorState extends FlxState
 		cursorSprite.visible = false;
 		add(cursorSprite);
 
+		gridWaveLayer = new FlxSpriteGroup();
+		add(gridWaveLayer);
+
 		eventLayer = new FlxSpriteGroup();
 		add(eventLayer);
+
+		receptorLayer = new FlxSpriteGroup();
+		add(receptorLayer);
 
 		tailLayer = new FlxSpriteGroup();
 		add(tailLayer);
@@ -704,8 +736,15 @@ class ChartEditorState extends FlxState
 		noteLayer = new FlxSpriteGroup();
 		add(noteLayer);
 
-		receptorLayer = new FlxSpriteGroup();
-		add(receptorLayer);
+		for (i in 0...GRID_WAVE_BARS)
+		{
+			var bar = new FlxSprite();
+			bar.makeGraphic(1, 1, 0xFF66FF88);
+			bar.origin.set(0, 0);
+			bar.visible = false;
+			gridWaveLayer.add(bar);
+			gridWaveBars.push(bar);
+		}
 
 		for (i in 0...MAX_EVENT_SPRITES)
 		{
@@ -748,6 +787,21 @@ class ChartEditorState extends FlxState
 		{
 			for (lane in 0...4)
 			{
+				var socketWidth = LANE_WIDTH - 8;
+				var socketHeight = RECEPTOR_SIZE + 12;
+				var socketX = laneCenter(lane, side) - socketWidth * 0.5;
+				var socketY = PLAYHEAD_Y - socketHeight * 0.5;
+
+				var border = new FlxSprite(socketX - 2, socketY - 2);
+				border.makeGraphic(Std.int(socketWidth + 4), Std.int(socketHeight + 4), side ? 0xFF335588 : 0xFF553355);
+				border.alpha = 0.55;
+				receptorLayer.add(border);
+
+				var socket = new FlxSprite(socketX, socketY);
+				socket.makeGraphic(Std.int(socketWidth), Std.int(socketHeight), 0xFF080B12);
+				socket.alpha = 0.92;
+				receptorLayer.add(socket);
+
 				var receptor = new FlxSprite();
 				var frame = noteFrames == null ? null : noteFrames.getByName(noteFrameName(lane));
 
@@ -761,8 +815,8 @@ class ChartEditorState extends FlxState
 					receptor.makeGraphic(Std.int(RECEPTOR_SIZE), Std.int(RECEPTOR_SIZE), FlxColor.WHITE);
 				}
 
-				receptor.color = side ? 0xFF88AAFF : 0xFF887788;
-				receptor.alpha = 0.75;
+				receptor.color = side ? 0xFF6688BB : 0xFF886688;
+				receptor.alpha = 0.45;
 				receptor.x = laneCenter(lane, side) - receptor.width * 0.5;
 				receptor.y = PLAYHEAD_Y - receptor.height * 0.5;
 				receptorLayer.add(receptor);
@@ -897,6 +951,7 @@ class ChartEditorState extends FlxState
 	{
 		refreshInfo();
 		refreshEventInfo();
+		rebuildWaveform();
 		refreshChartStatus();
 		refreshRuntimeText();
 		refreshHoverText();
@@ -937,7 +992,10 @@ class ChartEditorState extends FlxState
 		lines.push('NOTES: ${chartData.notes.length}   EVENTS: ${chartData.events.length}');
 		lines.push('OFFSET: ${Std.int(chartData.offset)} ms');
 		lines.push('LENGTH: ${formatTime(songLength)}');
-		lines.push('AUDIO: ${audio == null ? "SIMULATED" : "INST.OGG"}');
+		lines.push('AUDIO: ${audioLabel()}');
+
+		if (voicesFileName != null)
+			lines.push('VOICES: $voicesFileName');
 
 		if (loadFailed)
 			lines.push("SAVE BLOCKED: LOAD FAILED");
@@ -956,6 +1014,124 @@ class ChartEditorState extends FlxState
 			timelineFill.scale.x = progress;
 			timelineFill.visible = progress > 0;
 			timelineMarker.x = GRID_X + GRID_W * progress - 1;
+		}
+	}
+
+	function rebuildWaveform():Void
+	{
+		densityBins = [];
+
+		for (i in 0...WAVEFORM_BINS)
+			densityBins.push(0);
+
+		if (chartData == null || songLength <= 0)
+		{
+			updateTimelineWaveform();
+			return;
+		}
+
+		for (note in chartData.notes)
+		{
+			var bin = waveformBin(note.time);
+			densityBins[bin] += note.sustainLength > 0 ? 1.5 : 1.0;
+		}
+
+		for (event in chartData.events)
+		{
+			var bin = waveformBin(event.time);
+			densityBins[bin] += 0.5;
+		}
+
+		var maxDensity = 0.0;
+
+		for (value in densityBins)
+			maxDensity = Math.max(maxDensity, value);
+
+		if (maxDensity <= 0)
+			maxDensity = 1;
+
+		for (i in 0...densityBins.length)
+			densityBins[i] /= maxDensity;
+
+		for (i in 1...densityBins.length - 1)
+			densityBins[i] = (densityBins[i - 1] + densityBins[i] * 2 + densityBins[i + 1]) * 0.25;
+
+		updateTimelineWaveform();
+	}
+
+	function waveformBin(time:Float):Int
+	{
+		if (songLength <= 0)
+			return 0;
+
+		var bin = Std.int(clamp(time / songLength, 0, 1) * (WAVEFORM_BINS - 1));
+		return Std.int(clamp(bin, 0, WAVEFORM_BINS - 1));
+	}
+
+	function densityAt(time:Float):Float
+	{
+		if (densityBins.length == 0)
+			return 0;
+
+		return densityBins[waveformBin(time)];
+	}
+
+	function updateTimelineWaveform():Void
+	{
+		if (timelineBars.length == 0)
+			return;
+
+		var gap = 1.0;
+		var step = (GRID_W - gap) / TIMELINE_BARS;
+		var barWidth = Math.max(1, step - gap);
+
+		for (i in 0...timelineBars.length)
+		{
+			var bar = timelineBars[i];
+			var start = Std.int(i * densityBins.length / TIMELINE_BARS);
+			var end = Std.int((i + 1) * densityBins.length / TIMELINE_BARS);
+			var value = 0.0;
+			var count = 0;
+
+			for (j in start...end)
+			{
+				value += densityBins[j];
+				count++;
+			}
+
+			if (count > 0)
+				value /= count;
+
+			var height = Math.max(2, value * (TIMELINE_H - 4));
+			bar.x = GRID_X + i * step;
+			bar.y = TIMELINE_Y + TIMELINE_H - height;
+			bar.scale.set(barWidth / TIMELINE_BAR_WIDTH, height);
+			bar.visible = value > 0.01;
+		}
+	}
+
+	function updateGridWaveform():Void
+	{
+		if (gridWaveBars.length == 0)
+			return;
+
+		var centerLeft = GRID_X + 4 * LANE_WIDTH;
+		var centerRight = centerLeft + CENTER_GAP;
+		var centerX = (centerLeft + centerRight) * 0.5;
+		var maxWidth = Math.max(2, centerRight - centerLeft - 4);
+
+		for (i in 0...gridWaveBars.length)
+		{
+			var bar = gridWaveBars[i];
+			var y = GRID_Y + (i + 0.5) * (GRID_H / GRID_WAVE_BARS);
+			var time = yToTime(y);
+			var value = densityAt(time);
+			var width = Math.max(2, value * maxWidth);
+			bar.x = centerX - width * 0.5;
+			bar.y = y - 1;
+			bar.scale.set(width, 2);
+			bar.alpha = 0.3 + value * 0.5;
+			bar.visible = value > 0.01;
 		}
 	}
 
@@ -1212,14 +1388,79 @@ class ChartEditorState extends FlxState
 		}
 	}
 
+	function audioLabel():String
+	{
+		if (audio != null && voices != null)
+			return "INST + VOICES";
+
+		if (audio != null)
+			return "INST.OGG";
+
+		if (voices != null)
+			return "VOICES ONLY";
+
+		return "SIMULATED";
+	}
+
+	function activeAudioLength():Float
+	{
+		var length = 0.0;
+
+		if (audio != null)
+			length = Math.max(length, audio.length);
+
+		if (voices != null)
+			length = Math.max(length, voices.length);
+
+		return length;
+	}
+
+	function applyAudioPosition():Void
+	{
+		if (chartData == null)
+			return;
+
+		var target = clamp(chartTime - chartData.offset, 0, activeAudioLength());
+
+		if (audio != null)
+			audio.time = clamp(target, 0, audio.length);
+
+		if (voices != null)
+			voices.time = clamp(target, 0, voices.length);
+	}
+
+	function startPlaybackAudio():Void
+	{
+		applyAudioPosition();
+
+		if (audio != null)
+			audio.play();
+
+		if (voices != null)
+			voices.play();
+	}
+
 	function updatePlayback(elapsed:Float):Void
 	{
 		if (!playing || chartData == null)
 			return;
 
-		if (audio != null)
+		if (audio != null || voices != null)
 		{
-			chartTime = audio.time + chartData.offset;
+			var syncSound = (audio != null && audio.playing) ? audio : voices;
+
+			if (syncSound == null)
+				syncSound = audio;
+
+			chartTime = syncSound.time + chartData.offset;
+
+			if (audio != null && voices != null && voices.playing)
+			{
+				var target = clamp(audio.time, 0, voices.length);
+
+				if (Math.abs(voices.time - target) > 80)
+					voices.time = target;
+			}
 
 			if (chartTime >= songLength)
 			{
@@ -1256,13 +1497,7 @@ class ChartEditorState extends FlxState
 		if (chartTime >= songLength - 50)
 			chartTime = 0;
 
-		if (audio != null)
-		{
-			var target = clamp(chartTime - chartData.offset, 0, audio.length);
-			audio.time = target;
-			audio.play();
-		}
-
+		startPlaybackAudio();
 		playing = true;
 	}
 
@@ -1272,20 +1507,19 @@ class ChartEditorState extends FlxState
 
 		if (audio != null)
 			audio.pause();
+
+		if (voices != null)
+			voices.pause();
 	}
 
 	function seekTo(time:Float):Void
 	{
 		chartTime = clamp(time, 0, songLength);
 
-		if (audio != null)
-		{
-			var target = clamp(chartTime - chartData.offset, 0, audio.length);
-			audio.time = target;
-
-			if (playing && !audio.playing)
-				audio.play();
-		}
+		if (playing)
+			startPlaybackAudio();
+		else
+			applyAudioPosition();
 
 		refreshRuntimeText();
 	}
@@ -1319,7 +1553,7 @@ class ChartEditorState extends FlxState
 				usedNotes++;
 				sprite.x = laneCenter(cast(note.direction, Int), note.isPlayer) - sprite.width * 0.5;
 				sprite.y = y - halfHeight;
-				sprite.alpha = note.isPlayer ? 1.0 : 0.45;
+				sprite.alpha = note.isPlayer ? 1.0 : 0.8;
 				sprite.visible = true;
 			}
 
@@ -1336,7 +1570,7 @@ class ChartEditorState extends FlxState
 					tail.y = top;
 					tail.scale.set(1, bottom - top);
 					tail.color = noteColor(cast(note.direction, Int));
-					tail.alpha = note.isPlayer ? 0.7 : 0.35;
+					tail.alpha = note.isPlayer ? 0.85 : 0.55;
 					tail.visible = true;
 				}
 			}
@@ -1369,6 +1603,8 @@ class ChartEditorState extends FlxState
 
 		for (i in usedEvents...eventSprites.length)
 			eventSprites[i].visible = false;
+
+		updateGridWaveform();
 	}
 
 	function applyNoteVisual(sprite:FlxSprite, direction:Int):Void
@@ -1524,6 +1760,115 @@ class ChartEditorState extends FlxState
 		}
 	}
 
+	function audioFileExists(song:EditorSong, fileName:String):Bool
+	{
+		#if sys
+		if (song.physicalRoot != null && fileExists('${song.physicalRoot}/song/$fileName'))
+			return true;
+		#end
+
+		return assetExists('$SONG_ROOT${song.folder}/song/$fileName');
+	}
+
+	function loadSongSound(song:EditorSong, fileName:String):FlxSound
+	{
+		var virtualPath = '$SONG_ROOT${song.folder}/song/$fileName';
+
+		#if sys
+		if (song.physicalRoot != null)
+		{
+			var physicalPath = '${song.physicalRoot}/song/$fileName';
+
+			if (fileExists(physicalPath))
+			{
+				try
+				{
+					var sound = Sound.fromFile(physicalPath);
+					return FlxG.sound.load(sound, 1.0, false, null, false, false);
+				}
+				catch (error:Dynamic) {}
+			}
+		}
+		#end
+
+		try
+		{
+			if (assetExists(virtualPath))
+				return FlxG.sound.load(virtualPath, 1.0, false, null, false, false);
+		}
+		catch (error:Dynamic) {}
+
+		return null;
+	}
+
+	static function isVoiceFile(file:String):Bool
+	{
+		if (file == null)
+			return false;
+
+		var lower = file.toLowerCase();
+		return lower.indexOf("voices") == 0 && lower.indexOf(".ogg") == lower.length - 4;
+	}
+
+	function findVoicesFileName(song:EditorSong):String
+	{
+		var candidates = ["Voices.ogg", 'Voices-${song.folder}.ogg'];
+
+		for (candidate in candidates)
+		{
+			if (audioFileExists(song, candidate))
+				return candidate;
+		}
+
+		#if sys
+		if (song.physicalRoot != null)
+		{
+			var dir = '${song.physicalRoot}/song';
+
+			try
+			{
+				if (FileSystem.exists(dir) && FileSystem.isDirectory(dir))
+				{
+					for (file in FileSystem.readDirectory(dir))
+					{
+						if (isVoiceFile(file))
+							return file;
+					}
+				}
+			}
+			catch (error:Dynamic) {}
+		}
+		#end
+
+		try
+		{
+			var prefix = '$SONG_ROOT${song.folder}/song/';
+
+			for (asset in Assets.list())
+			{
+				if (asset.indexOf(prefix) != 0)
+					continue;
+
+				var file = asset.substr(prefix.length);
+
+				if (file.indexOf("/") >= 0)
+					continue;
+
+				if (isVoiceFile(file))
+					return file;
+			}
+		}
+		catch (error:Dynamic) {}
+
+		return null;
+	}
+
+	function onAudioComplete():Void
+	{
+		if ((audio == null || !audio.playing) && (voices == null || !voices.playing))
+			pausePlayback();
+	}
+
 	function loadAudio():Void
 	{
 		destroyAudio();
@@ -1533,62 +1878,37 @@ class ChartEditorState extends FlxState
 		if (song == null)
 			return;
 
-		var virtualPath = '$SONG_ROOT${song.folder}/song/Inst.ogg';
-
-		#if sys
-		if (song.physicalRoot != null)
-		{
-			var physicalPath = '${song.physicalRoot}/song/Inst.ogg';
-
-			if (fileExists(physicalPath))
-			{
-				try
-				{
-					var sound = Sound.fromFile(physicalPath);
-					audio = FlxG.sound.load(sound, 1.0, false, null, false, false);
-				}
-				catch (error:Dynamic)
-				{
-					audio = null;
-				}
-			}
-		}
-		#end
-
-		if (audio == null)
-		{
-			try
-			{
-				if (Assets.exists(virtualPath))
-					audio = FlxG.sound.load(virtualPath, 1.0, false, null, false, false);
-			}
-			catch (error:Dynamic)
-			{
-				audio = null;
-			}
-		}
+		audio = loadSongSound(song, "Inst.ogg");
+		voicesFileName = findVoicesFileName(song);
+		voices = voicesFileName == null ? null : loadSongSound(song, voicesFileName);
 
 		if (audio != null)
-		{
-			audio.onComplete = function():Void
-			{
-				playing = false;
-			};
-		}
-		else
-		{
-			FlxG.log.warn('Chart editor: no Inst.ogg for ${song.folder}; using simulated playback');
-		}
+			audio.onComplete = onAudioComplete;
+
+		if (voices != null)
+			voices.onComplete = onAudioComplete;
+
+		if (audio == null && voices == null)
+			FlxG.log.warn('Chart editor: no audio for ${song.folder}; using simulated playback');
 	}
 
 	function destroyAudio():Void
 	{
-		if (audio == null)
-			return;
+		if (audio != null)
+		{
+			audio.stop();
+			audio.destroy();
+			audio = null;
+		}
 
-		audio.stop();
-		audio.destroy();
-		audio = null;
+		if (voices != null)
+		{
+			voices.stop();
+			voices.destroy();
+			voices = null;
+		}
+
+		voicesFileName = null;
 	}
 
 	function computeSongLength():Float
@@ -1606,11 +1926,10 @@ class ChartEditorState extends FlxState
 			end = Math.max(end, beatMs() * 4);
 		}
 
-		if (audio != null && audio.length > 0)
-		{
-			var audioEnd = audio.length + (chartData == null ? 0 : chartData.offset);
-			end = Math.max(end, audioEnd);
-		}
+		var soundEnd = activeAudioLength();
+
+		if (soundEnd > 0)
+			end = Math.max(end, soundEnd + (chartData == null ? 0 : chartData.offset));
 
 		return Math.max(4000, end);
 	}
@@ -1669,7 +1988,12 @@ class ChartEditorState extends FlxState
 			chartExists = true;
 			dirty = false;
 			exitArmed = false;
-			setStatus('SAVED $path', 0xFF66FF88);
+
+			if (reloadChartFromDisk())
+				setStatus('SAVED + HOT RELOADED $path', 0xFF66FF88);
+			else
+				setStatus('SAVED (RELOAD FAILED) $path', 0xFFFFAA33);
+
 			refreshChartStatus();
 		}
 		catch (error:Dynamic)
@@ -1679,6 +2003,67 @@ class ChartEditorState extends FlxState
 		#else
 		setStatus("SAVE IS NOT AVAILABLE ON THIS TARGET", 0xFFFF4455);
 		#end
+	}
+
+	function reloadChartFromDisk():Bool
+	{
+		var song = currentSong();
+		var difficulty = currentDifficulty();
+		var text = readFileText(chartPhysicalPath);
+
+		if (text == null)
+			text = readChartText(song, difficulty);
+
+		if (text == null)
+			return false;
+
+		var wasPlaying = playing;
+		var previousBpm = chartData == null ? 120 : chartData.bpm;
+		var previousName = chartData == null ? null : chartData.songName;
+
+		if (wasPlaying)
+			pausePlayback();
+
+		try
+		{
+			var root:Dynamic = haxe.Json.parse(text);
+			var parsed = FNFChartParser.parse(text, ChartTimeMode.AbsoluteMs, previousBpm);
+
+			if (parsed.bpm <= 0)
+				parsed.bpm = previousBpm;
+
+			if (previousName != null)
+				parsed.songName = previousName;
+
+			rawRoot = root;
+			rawSongData = nestedSong(root);
+			chartData = parsed;
+			loadFailed = false;
+			chartExists = true;
+			songLength = computeSongLength();
+			chartTime = clamp(chartTime, 0, songLength);
+			selectedEventIndex = -1;
+			eventListOffset = 0;
+			refreshAll();
+
+			if (wasPlaying)
+			{
+				playing = true;
+				startPlaybackAudio();
+			}
+
+			return true;
+		}
+		catch (error:Dynamic)
+		{
+			if (wasPlaying)
+			{
+				playing = true;
+				startPlaybackAudio();
+			}
+
+			return false;
+		}
 	}
 
 	function createRawRoot():Void
