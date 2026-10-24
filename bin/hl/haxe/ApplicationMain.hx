@@ -35,7 +35,7 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "31";
+		app.meta["build"] = "32";
 		app.meta["company"] = "DarkEngine";
 		app.meta["file"] = "DarkEngine";
 		app.meta["name"] = "DarkEngine";

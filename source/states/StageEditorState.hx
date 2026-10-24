@@ -8,6 +8,7 @@ import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
 import mods.ModManager;
+import ui.MissingFilePrompt;
 import openfl.display.BitmapData;
 import openfl.geom.Rectangle;
 import openfl.utils.Assets;
@@ -133,6 +134,7 @@ class StageEditorState extends FlxState
 	var statusText:FlxText;
 	var hintText:FlxText;
 	var hintText2:FlxText;
+	var missingPrompt:MissingFilePrompt;
 
 	var dirty:Bool = false;
 	var exitArmed:Bool = false;
@@ -170,6 +172,9 @@ class StageEditorState extends FlxState
 	override public function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
+
+		if (missingPrompt != null && missingPrompt.updatePrompt())
+			return;
 
 		if (FlxG.mouse.justPressed)
 			handleMouse(FlxG.mouse.x, FlxG.mouse.y);
@@ -411,6 +416,9 @@ class StageEditorState extends FlxState
 			"CLICK: SELECT    N/P: IMAGE    A: ADD    DEL: REMOVE    [/]: ORDER    F5/F6: STAGE    F7: NEW    H: HIDE UI    SPACE / CTRL+S: SAVE    ESC: BACK",
 			12);
 		hintText2.color = 0xFF66718A;
+
+		missingPrompt = new MissingFilePrompt();
+		add(missingPrompt);
 	}
 
 	function addPanel(x:Float, y:Float, width:Float, height:Float):Void
@@ -613,6 +621,13 @@ class StageEditorState extends FlxState
 			return;
 
 		var info = stageInfos[index];
+
+		if (!stageFileExists(info.path))
+		{
+			requestMissingStage(index, info);
+			return;
+		}
+
 		destroyLayerSprites();
 		layers = [];
 		stageIndex = index;
@@ -678,6 +693,90 @@ class StageEditorState extends FlxState
 		else
 			setStatus('LOADED ${info.path}', 0xFF66FF88);
 	}
+
+	function requestMissingStage(index:Int, info:StageInfo):Void
+	{
+		#if sys
+		if (missingPrompt == null || missingPrompt.isOpen)
+			return;
+
+		missingPrompt.show("STAGE FILE", info.path, "A neutral background layer and standard Dad/BF/GF anchors will be created.",
+			function()
+			{
+				if (createStageTemplate(info.path, info.name))
+				{
+					stageInfos = discoverStages();
+					var nextIndex = findStageIndex(info.name);
+					loadStage(nextIndex >= 0 ? nextIndex : index);
+					setStatus('CREATED + LOADED ${info.path}', 0xFF66FF88);
+				}
+				else
+				{
+					setStatus('CREATE ERROR: ${info.path}', 0xFFFF4455);
+				}
+			},
+			function()
+			{
+				setStatus('LOAD CANCELLED: ${info.path}', 0xFFFFAA33);
+			});
+		#else
+		setStatus('STAGE FILE NOT FOUND: ${info.path}', 0xFFFF4455);
+		#end
+	}
+
+	static function stageFileExists(path:String):Bool
+	{
+		#if sys
+		try
+		{
+			if (path != null && FileSystem.exists(path) && !FileSystem.isDirectory(path))
+				return true;
+		}
+		catch (error:Dynamic) {}
+		#end
+
+		return path != null && Assets.exists(path);
+	}
+
+	#if sys
+	static function createStageTemplate(path:String, name:String):Bool
+	{
+		try
+		{
+			var directory = haxe.io.Path.directory(path);
+
+			if (directory != null && directory != "" && !FileSystem.exists(directory))
+				FileSystem.createDirectory(directory);
+
+			var data:Dynamic = {
+				name: name,
+				layers: [
+					{
+						name: "background",
+						type: "color",
+						x: 0,
+						y: 0,
+						width: FlxG.width,
+						height: FlxG.height,
+						color: "#101820",
+						alpha: 1,
+						scrollFactor: [1, 1]
+					}
+				],
+				dadPosition: [FlxG.width * 0.28, defaultCharacterY()],
+				bfPosition: [FlxG.width * 0.72, defaultCharacterY()],
+				gfPosition: [FlxG.width * 0.5, defaultCharacterY()]
+			};
+
+			File.saveContent(path, haxe.Json.stringify(data, null, "\t") + "\n");
+			return true;
+		}
+		catch (error:Dynamic)
+		{
+			return false;
+		}
+	}
+	#end
 
 	function createNewStage():Void
 	{

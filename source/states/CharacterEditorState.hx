@@ -9,6 +9,7 @@ import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
 import graphics.BrokenCharacter;
 import graphics.SparrowLoader;
+import ui.MissingFilePrompt;
 import openfl.display.BitmapData;
 import openfl.utils.Assets;
 import openfl.utils.ByteArray;
@@ -87,6 +88,7 @@ class CharacterEditorState extends FlxState
 	var characterTexts:Array<FlxText> = [];
 	var animationTexts:Array<FlxText> = [];
 	var animationOffsetTexts:Array<FlxText> = [];
+	var missingPrompt:MissingFilePrompt;
 
 	override public function create():Void
 	{
@@ -102,6 +104,9 @@ class CharacterEditorState extends FlxState
 	override public function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
+
+		if (missingPrompt != null && missingPrompt.updatePrompt())
+			return;
 
 		if (FlxG.mouse.justPressed)
 			handleMouseClick(FlxG.mouse.x, FlxG.mouse.y);
@@ -240,6 +245,9 @@ class CharacterEditorState extends FlxState
 		saveHint.alignment = FlxTextAlign.CENTER;
 		saveHint.color = 0xFF666688;
 		add(saveHint);
+
+		missingPrompt = new MissingFilePrompt();
+		add(missingPrompt);
 	}
 
 	function handleMouseClick(mouseX:Float, mouseY:Float):Void
@@ -339,11 +347,82 @@ class CharacterEditorState extends FlxState
 
 		if (brokenEntry)
 			setStatus("BROKEN DEFAULT CHARACTER", 0xFF88AAFF);
+		else if (currentConfig == null)
+		{
+			setStatus("MISSING CONFIG - CREATE A TEMPLATE?", 0xFFFFAA33);
+			requestMissingCharacterConfig(entry);
+		}
 		else if (fallbackReason != null)
 			setStatus('BROKEN FALLBACK: $fallbackReason', 0xFFFFCC55);
 		else
 			setStatus("READY - ADJUST OFFSETS WITH ARROWS", 0xFF66FF88);
 	}
+
+	function requestMissingCharacterConfig(entry:CharacterEntry):Void
+	{
+		#if sys
+		if (entry == null || missingPrompt == null || missingPrompt.isOpen)
+			return;
+
+		var path = resolveSavePath(entry);
+		missingPrompt.show("CHARACTER CONFIG", path, "A template with zero offsets and default animation prefixes will be created.",
+			function()
+			{
+				if (createCharacterTemplate(entry, path))
+				{
+					entry.dataFile = path;
+					loadSelectedCharacter();
+					refreshAll();
+					setStatus('CREATED + LOADED $path', 0xFF66FF88);
+				}
+				else
+				{
+					setStatus('CREATE ERROR: $path', 0xFFFF4455);
+				}
+			},
+			function()
+			{
+				setStatus("CHARACTER CONFIG NOT CREATED - PLACEHOLDER PREVIEW", 0xFFFFAA33);
+			});
+		#end
+	}
+
+	#if sys
+	static function createCharacterTemplate(entry:CharacterEntry, path:String):Bool
+	{
+		try
+		{
+			var directory = haxe.io.Path.directory(path);
+
+			if (directory != null && directory != "" && !FileSystem.exists(directory))
+				FileSystem.createDirectory(directory);
+
+			var root = Xml.createElement("character");
+			root.set("flipX", "false");
+			root.set("antialiasing", "true");
+
+			for (i in 0...ANIMATION_NAMES.length)
+			{
+				var node = Xml.createElement("anim");
+				node.set("name", ANIMATION_NAMES[i]);
+				node.set("anim", '${entry.name}${ANIMATION_SUFFIXES[i]}');
+				node.set("fps", "24");
+				node.set("loop", "true");
+				node.set("x", "0");
+				node.set("y", "0");
+				root.addChild(node);
+			}
+
+			var output = "<!DOCTYPE codename-engine-character>\n" + root.toString() + "\n";
+			File.saveContent(path, output);
+			return true;
+		}
+		catch (error:Dynamic)
+		{
+			return false;
+		}
+	}
+	#end
 
 	function createSpritePreview(entry:CharacterEntry, frames:FlxAtlasFrames):Void
 	{
@@ -881,6 +960,9 @@ class CharacterEditorState extends FlxState
 			var entry = ensureEntry(entries, name);
 			entry.imageFile = '$imageDirectory/$file';
 			entry.xmlFile = imageXml.get(normalizeKey(name));
+
+			if (entry.dataFile == null)
+				entry.dataFile = '$dataDirectory/$name.xml';
 		}
 
 		for (file in readDirectoryFiles(imageDirectory, ".xml"))
@@ -888,6 +970,9 @@ class CharacterEditorState extends FlxState
 			var name = stripExtension(file);
 			var entry = ensureEntry(entries, name);
 			entry.xmlFile = '$imageDirectory/$file';
+
+			if (entry.dataFile == null)
+				entry.dataFile = '$dataDirectory/$name.xml';
 		}
 	}
 
@@ -930,6 +1015,21 @@ class CharacterEditorState extends FlxState
 				source = entry.dataFile;
 			}
 			catch (error:Dynamic) {}
+		}
+
+		if (text == null)
+		{
+			var fallbackPath = resolveSavePath(entry);
+
+			if (fallbackPath != null && FileSystem.exists(fallbackPath) && !FileSystem.isDirectory(fallbackPath))
+			{
+				try
+				{
+					text = File.getContent(fallbackPath);
+					source = fallbackPath;
+				}
+				catch (error:Dynamic) {}
+			}
 		}
 		#end
 

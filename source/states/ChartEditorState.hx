@@ -22,6 +22,7 @@ import haxe.io.Bytes;
 import input.NoteDirection;
 import mods.ModInfo;
 import mods.ModManager;
+import ui.MissingFilePrompt;
 import openfl.utils.Assets;
 #if sys
 import openfl.media.Sound;
@@ -206,6 +207,7 @@ class ChartEditorState extends FlxState
 	var statusText:FlxText;
 	var hintText:FlxText;
 	var hintText2:FlxText;
+	var missingPrompt:MissingFilePrompt;
 
 	var selectedEventIndex:Int = -1;
 	var eventListOffset:Int = 0;
@@ -255,6 +257,9 @@ class ChartEditorState extends FlxState
 
 	function handleKeyboard():Void
 	{
+		if (missingPrompt != null && missingPrompt.updatePrompt())
+			return;
+
 		if (activeInput != null)
 		{
 			handleInputKeyboard();
@@ -436,6 +441,9 @@ class ChartEditorState extends FlxState
 
 	function updateMouse():Void
 	{
+		if (missingPrompt != null && missingPrompt.isOpen)
+			return;
+
 		hoverValid = false;
 
 		var mouseX = FlxG.mouse.x;
@@ -1614,6 +1622,8 @@ class ChartEditorState extends FlxState
 		buildGrid();
 		buildLayers();
 		buildTexts();
+		missingPrompt = new MissingFilePrompt();
+		add(missingPrompt);
 	}
 
 	function buildPanels():Void
@@ -2663,18 +2673,28 @@ class ChartEditorState extends FlxState
 
 		var song = currentSong();
 		var difficulty = currentDifficulty();
-		var metaText = readMetaText(song);
-		var metaBpm = metaBpmFromText(metaText);
 
 		if (song == null)
 		{
-			chartData = createEmptyChart(null, metaBpm);
+			chartData = createEmptyChart(null, 0);
 			songLength = computeSongLength();
 			refreshAll();
 			setStatus("NO SONGS FOUND", 0xFFFF4455);
 			return;
 		}
 
+		if (!songMetaExists(song))
+		{
+			chartData = createEmptyChart(song, 0);
+			loadAudio();
+			songLength = computeSongLength();
+			refreshAll();
+			requestMissingSongMeta(song);
+			return;
+		}
+
+		var metaText = readMetaText(song);
+		var metaBpm = metaBpmFromText(metaText);
 		chartAssetPath = '$SONG_ROOT${song.folder}/charts/$difficulty.json';
 		chartPhysicalPath = physicalChartPath(song, difficulty);
 		var text = readChartText(song, difficulty);
@@ -2685,7 +2705,7 @@ class ChartEditorState extends FlxState
 			loadAudio();
 			songLength = computeSongLength();
 			refreshAll();
-			setStatus('NEW CHART: $chartAssetPath', 0xFF66FF88);
+			requestMissingChart(song, difficulty);
 			return;
 		}
 
@@ -2718,6 +2738,136 @@ class ChartEditorState extends FlxState
 			setStatus('CHART LOAD FAILED: ${Std.string(error)}', 0xFFFF4455);
 		}
 	}
+
+	static function songMetaExists(song:EditorSong):Bool
+	{
+		if (song == null)
+			return false;
+
+		return fileExists(physicalMetaPath(song)) || assetExists('$SONG_ROOT${song.folder}/meta.json');
+	}
+
+	function requestMissingSongMeta(song:EditorSong):Void
+	{
+		#if sys
+		if (missingPrompt == null || missingPrompt.isOpen)
+			return;
+
+		var path = physicalMetaPath(song);
+
+		missingPrompt.show("SONG METADATA", path, "A minimal meta.json with display name, BPM and difficulties will be created.",
+			function()
+			{
+				if (createSongMetaTemplate(song, path))
+				{
+					loadCurrentChart();
+
+					if (missingPrompt == null || !missingPrompt.isOpen)
+						setStatus('CREATED + LOADED $path', 0xFF66FF88);
+				}
+				else
+				{
+					setStatus('CREATE ERROR: $path', 0xFFFF4455);
+				}
+			},
+			function()
+			{
+				setStatus('SONG METADATA NOT CREATED - LOAD CANCELLED', 0xFFFFAA33);
+			});
+		#else
+		setStatus('SONG METADATA NOT FOUND: ${physicalMetaPath(song)}', 0xFFFF4455);
+		#end
+	}
+
+	function requestMissingChart(song:EditorSong, difficulty:String):Void
+	{
+		#if sys
+		if (missingPrompt == null || missingPrompt.isOpen)
+			return;
+
+		var path = physicalChartPath(song, difficulty);
+
+		missingPrompt.show("CHART", path, "A minimal chart with Dad/BF strumlines and empty note arrays will be created.",
+			function()
+			{
+				if (createChartTemplate(song, path))
+				{
+					loadCurrentChart();
+
+					if (missingPrompt == null || !missingPrompt.isOpen)
+						setStatus('CREATED + LOADED $path', 0xFF66FF88);
+				}
+				else
+				{
+					setStatus('CREATE ERROR: $path', 0xFFFF4455);
+				}
+			},
+			function()
+			{
+				setStatus('CHART NOT CREATED - SAVE TO CREATE', 0xFFFFAA33);
+			});
+		#else
+		setStatus('CHART NOT FOUND: ${physicalChartPath(song, difficulty)}', 0xFFFF4455);
+		#end
+	}
+
+	#if sys
+	static function createSongMetaTemplate(song:EditorSong, path:String):Bool
+	{
+		try
+		{
+			var directory = haxe.io.Path.directory(path);
+
+			if (directory != null && directory != "" && !FileSystem.exists(directory))
+				FileSystem.createDirectory(directory);
+
+			var difficulties = song.difficulties.length > 0 ? song.difficulties : ["hard"];
+			var data:Dynamic = {
+				displayName: song.displayName,
+				bpm: song.bpm > 0 ? song.bpm : 120,
+				difficulties: difficulties
+			};
+
+			File.saveContent(path, haxe.Json.stringify(data, null, "\t") + "\n");
+			return true;
+		}
+		catch (error:Dynamic)
+		{
+			return false;
+		}
+	}
+
+	function createChartTemplate(song:EditorSong, path:String):Bool
+	{
+		try
+		{
+			var directory = haxe.io.Path.directory(path);
+
+			if (directory != null && directory != "" && !FileSystem.exists(directory))
+				FileSystem.createDirectory(directory);
+
+			var metaBpm = metaBpmFromText(readMetaText(song));
+			var bpm = metaBpm > 0 ? metaBpm : (song.bpm > 0 ? song.bpm : 120);
+			var data:Dynamic = {
+				songName: song.displayName,
+				bpm: bpm,
+				scrollSpeed: 1,
+				stage: "stage",
+				needsVoices: true,
+				offset: 0,
+				events: [],
+				strumLines: createDefaultStrumLines()
+			};
+
+			File.saveContent(path, haxe.Json.stringify(data, null, "\t") + "\n");
+			return true;
+		}
+		catch (error:Dynamic)
+		{
+			return false;
+		}
+	}
+	#end
 
 	function createEmptyChart(song:EditorSong, metaBpm:Float):FNFChart
 	{
@@ -2771,13 +2921,21 @@ class ChartEditorState extends FlxState
 
 		try
 		{
-			var json:Dynamic = haxe.Json.parse(text);
+			var json:Dynamic = haxe.Json.parse(stripBom(text));
 			return readFloat(Reflect.field(json, "bpm"), 0);
 		}
 		catch (error:Dynamic)
 		{
 			return 0;
 		}
+	}
+
+	static function stripBom(text:String):String
+	{
+		if (text != null && text.length > 0 && text.charCodeAt(0) == 0xFEFF)
+			return text.substr(1);
+
+		return text;
 	}
 
 	function audioFileExists(song:EditorSong, fileName:String):Bool
@@ -3816,7 +3974,7 @@ class ChartEditorState extends FlxState
 
 		try
 		{
-			var json:Dynamic = haxe.Json.parse(text);
+			var json:Dynamic = haxe.Json.parse(stripBom(text));
 
 			if (json == null)
 				return info;
