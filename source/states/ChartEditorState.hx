@@ -10,11 +10,14 @@ import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.group.FlxSpriteGroup;
+import flixel.input.keyboard.FlxKey;
 import flixel.sound.FlxSound;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.util.FlxColor;
 import graphics.SparrowLoader;
+import haxe.Int64;
+import haxe.io.Bytes;
 import input.NoteDirection;
 import mods.ModInfo;
 import mods.ModManager;
@@ -23,6 +26,9 @@ import openfl.utils.Assets;
 import openfl.media.Sound;
 import sys.FileSystem;
 import sys.io.File;
+#end
+#if (sys && lime_vorbis)
+import lime.media.vorbis.VorbisFile;
 #end
 
 private typedef EditorSong =
@@ -48,6 +54,29 @@ private typedef SectionRange =
 	var end:Float;
 	var bpm:Float;
 	var mustHit:Bool;
+}
+
+private typedef EditorInputField =
+{
+	var key:String;
+	var label:String;
+	var x:Float;
+	var y:Float;
+	var w:Float;
+	var h:Float;
+	var background:FlxSprite;
+	var labelText:FlxText;
+	var valueText:FlxText;
+}
+
+private typedef EditorAudioRow =
+{
+	var key:String;
+	var x:Float;
+	var y:Float;
+	var w:Float;
+	var h:Float;
+	var text:FlxText;
 }
 
 class ChartEditorState extends FlxState
@@ -85,8 +114,8 @@ class ChartEditorState extends FlxState
 	static inline var EVENT_ROW_HEIGHT:Float = 24;
 	static inline var EVENT_LIST_Y:Float = 176;
 	static inline var WAVEFORM_BINS:Int = 512;
-	static inline var TIMELINE_BARS:Int = 96;
-	static inline var GRID_WAVE_BARS:Int = 32;
+	static inline var TIMELINE_BARS:Int = 128;
+	static inline var GRID_WAVE_BARS:Int = 96;
 	static inline var TIMELINE_BAR_WIDTH:Float = 5;
 
 	static var SNAP_LABELS:Array<String> = ["1/4", "1/8", "1/12", "1/16", "1/24", "1/32", "1/48", "1/64"];
@@ -121,8 +150,20 @@ class ChartEditorState extends FlxState
 	var chartAssetPath:String;
 	var chartPhysicalPath:String;
 	var audio:FlxSound;
-	var voices:FlxSound;
-	var voicesFileName:String;
+	var voiceSounds:Array<FlxSound> = [];
+	var voiceFileNames:Array<String> = [];
+	var instMuted:Bool = false;
+	var voicesMuted:Bool = false;
+	var playerVoiceIndex:Int = -1;
+	var opponentVoiceIndex:Int = -1;
+	var audioWaveformPeaks:Array<Float> = null;
+	var waveformSource:String = "DENSITY";
+	var inputFields:Array<EditorInputField> = [];
+	var audioRows:Array<EditorAudioRow> = [];
+	var activeInput:String = null;
+	var inputBuffer:String = "";
+	var inputCaretTimer:Float = 0;
+	var inputCaretOn:Bool = true;
 	var noteFrames:FlxAtlasFrames;
 
 	var noteLayer:FlxSpriteGroup;
@@ -143,9 +184,6 @@ class ChartEditorState extends FlxState
 
 	var titleText:FlxText;
 	var subtitleText:FlxText;
-	var songText:FlxText;
-	var difficultyText:FlxText;
-	var bpmText:FlxText;
 	var timeText:FlxText;
 	var snapText:FlxText;
 	var toolText:FlxText;
@@ -195,6 +233,7 @@ class ChartEditorState extends FlxState
 
 		handleKeyboard();
 		updateMouse();
+		updateInputCaret(elapsed);
 		updatePlayback(elapsed);
 		updateChartView();
 		refreshRuntimeText();
@@ -208,6 +247,12 @@ class ChartEditorState extends FlxState
 
 	function handleKeyboard():Void
 	{
+		if (activeInput != null)
+		{
+			handleInputKeyboard();
+			return;
+		}
+
 		if (FlxG.keys.justPressed.ESCAPE)
 		{
 			if (dirty && !exitArmed)
@@ -382,6 +427,10 @@ class ChartEditorState extends FlxState
 		var mouseX = FlxG.mouse.x;
 		var mouseY = FlxG.mouse.y;
 
+		if (activeInput == null && FlxG.mouse.wheel != 0 && mouseX >= GRID_X && mouseX <= GRID_X + GRID_W
+			&& mouseY >= GRID_Y && mouseY <= TIMELINE_Y + TIMELINE_H + 6)
+			seekBy(-FlxG.mouse.wheel * beatMs());
+
 		if (mouseX >= GRID_X && mouseX <= GRID_X + GRID_W && mouseY >= GRID_Y && mouseY <= GRID_BOTTOM)
 			updateHover(mouseX, mouseY);
 
@@ -430,6 +479,12 @@ class ChartEditorState extends FlxState
 
 	function handleLeftClick(mouseX:Float, mouseY:Float):Void
 	{
+		if (handleInputClick(mouseX, mouseY))
+			return;
+
+		if (handleAudioClick(mouseX, mouseY))
+			return;
+
 		if (mouseY >= TIMELINE_Y - 4 && mouseY <= TIMELINE_Y + TIMELINE_H + 4 && mouseX >= GRID_X && mouseX <= GRID_X + GRID_W)
 		{
 			var progress = clamp((mouseX - GRID_X) / GRID_W, 0, 1);
@@ -467,6 +522,685 @@ class ChartEditorState extends FlxState
 	{
 		if (hoverValid)
 			eraseNoteAt(hoverTime, hoverLane, hoverPlayer);
+	}
+
+	function updateInputCaret(elapsed:Float):Void
+	{
+		if (activeInput == null)
+			return;
+
+		inputCaretTimer += elapsed;
+
+		if (inputCaretTimer >= 0.45)
+		{
+			inputCaretTimer = 0;
+			inputCaretOn = !inputCaretOn;
+			refreshInputFields();
+		}
+	}
+
+	function handleInputKeyboard():Void
+	{
+		if (FlxG.keys.justPressed.ESCAPE)
+		{
+			cancelInput();
+			return;
+		}
+
+		if (FlxG.keys.justPressed.ENTER)
+		{
+			commitInput();
+			return;
+		}
+
+		if (FlxG.keys.justPressed.TAB)
+		{
+			var delta = FlxG.keys.pressed.SHIFT ? -1 : 1;
+
+			if (commitInput())
+				nextInputField(delta);
+
+			return;
+		}
+
+		if (FlxG.keys.justPressed.BACKSPACE)
+		{
+			if (inputBuffer.length > 0)
+				inputBuffer = inputBuffer.substr(0, inputBuffer.length - 1);
+
+			refreshInputFields();
+			return;
+		}
+
+		if (FlxG.keys.pressed.CONTROL || FlxG.keys.pressed.ALT)
+			return;
+
+		var keyCode = FlxG.keys.firstJustPressed();
+
+		if (keyCode < 0)
+			return;
+
+		var character = keyChar(keyCode);
+
+		if (character == null)
+			return;
+
+		if (inputBuffer.length < 64)
+			inputBuffer += character;
+
+		refreshInputFields();
+	}
+
+	function beginInput(key:String):Void
+	{
+		activeInput = key;
+		inputBuffer = fieldValue(key);
+		inputCaretOn = true;
+		inputCaretTimer = 0;
+		refreshInputFields();
+		setStatus('EDITING ${key.toUpperCase()} - ENTER APPLY / ESC CANCEL', 0xFF66CCFF);
+	}
+
+	function cancelInput():Void
+	{
+		if (activeInput == null)
+			return;
+
+		activeInput = null;
+		inputBuffer = "";
+		refreshInputFields();
+		setStatus("EDIT CANCELLED", 0xFF8888AA);
+	}
+
+	function commitInput():Bool
+	{
+		if (activeInput == null)
+			return true;
+
+		var key = activeInput;
+		var value = inputBuffer;
+		var ok = true;
+
+		activeInput = null;
+		inputBuffer = "";
+
+		switch (key)
+		{
+			case "song":
+				ok = applySongInput(value);
+			case "difficulty":
+				ok = applyDifficultyInput(value);
+			case "bpm":
+				ok = applyBpmInput(value);
+			case "speed":
+				ok = applySpeedInput(value);
+			case "offset":
+				ok = applyOffsetInput(value);
+		}
+
+		if (!ok)
+		{
+			activeInput = key;
+			inputBuffer = value;
+			refreshInputFields();
+			return false;
+		}
+
+		refreshInputFields();
+		refreshInfo();
+		return true;
+	}
+
+	function nextInputField(delta:Int):Void
+	{
+		var index = inputFieldIndex(activeInput);
+
+		if (index < 0)
+			return;
+
+		beginInput(inputFields[wrapIndex(index + delta, inputFields.length)].key);
+	}
+
+	function inputFieldIndex(key:String):Int
+	{
+		for (i in 0...inputFields.length)
+		{
+			if (inputFields[i].key == key)
+				return i;
+		}
+
+		return -1;
+	}
+
+	static function keyChar(keyCode:Int):String
+	{
+		var shift = FlxG.keys.pressed.SHIFT;
+
+		if (keyCode >= 65 && keyCode <= 90)
+		{
+			var letter = String.fromCharCode(keyCode);
+			return shift ? letter : letter.toLowerCase();
+		}
+
+		if (keyCode >= 48 && keyCode <= 57)
+			return String.fromCharCode(keyCode);
+
+		return switch (keyCode)
+		{
+			case 32: " ";
+			case 188: ",";
+			case 189: shift ? "_" : "-";
+			case 190: ".";
+			case 191: "/";
+			case 186: shift ? ":" : ";";
+			case 192: shift ? "~" : "`";
+			case 219: shift ? "{" : "[";
+			case 220: shift ? "|" : "\\";
+			case 221: shift ? "}" : "]";
+			case 222: shift ? "\"" : "'";
+			default: null;
+		}
+	}
+
+	function handleInputClick(mouseX:Float, mouseY:Float):Bool
+	{
+		for (field in inputFields)
+		{
+			if (mouseX < field.x || mouseX > field.x + field.w || mouseY < field.y || mouseY > field.y + field.h)
+				continue;
+
+			if (activeInput != field.key)
+			{
+				if (activeInput != null && !commitInput())
+					return true;
+
+				beginInput(field.key);
+			}
+
+			return true;
+		}
+
+		if (activeInput != null)
+			return !commitInput();
+
+		return false;
+	}
+
+	function fieldValue(key:String):String
+	{
+		var song = currentSong();
+
+		return switch (key)
+		{
+			case "song": song == null ? "" : song.displayName;
+			case "difficulty": currentDifficulty();
+			case "bpm": formatNumber(bpm());
+			case "speed": formatNumber(chartData == null ? 1 : chartData.speed);
+			case "offset": formatNumber(chartData == null ? 0 : chartData.offset);
+			default: "";
+		}
+	}
+
+	function refreshInputFields():Void
+	{
+		for (field in inputFields)
+		{
+			var focused = activeInput == field.key;
+			var value = focused ? inputBuffer : fieldValue(field.key);
+
+			if (focused)
+				value += inputCaretOn ? "_" : " ";
+
+			field.valueText.text = value;
+			field.valueText.color = focused ? FlxColor.WHITE : 0xFFB8B8CC;
+			field.background.color = focused ? 0xFF1B2A44 : 0xFF0A0E16;
+			field.labelText.color = focused ? 0xFF88AAFF : 0xFF666688;
+		}
+	}
+
+	function applySongInput(raw:String):Bool
+	{
+		var query = StringTools.trim(raw);
+
+		if (query == "")
+		{
+			setStatus("SONG NAME IS EMPTY", 0xFFFF4455);
+			return false;
+		}
+
+		if (dirty)
+		{
+			setStatus("UNSAVED CHANGES - CTRL+S TO SAVE", 0xFFFFAA33);
+			return false;
+		}
+
+		var index = findSongIndex(query);
+
+		if (index < 0)
+		{
+			setStatus('SONG NOT FOUND: $query', 0xFFFF4455);
+			return false;
+		}
+
+		selectedSong = index;
+		selectedDifficulty = preferredDifficulty(currentSong());
+		loadCurrentChart();
+		setStatus('SONG: ${currentSong().displayName}', 0xFF66FF88);
+		return true;
+	}
+
+	function applyDifficultyInput(raw:String):Bool
+	{
+		var difficulty = StringTools.trim(raw).toLowerCase();
+
+		if (difficulty == "")
+		{
+			setStatus("DIFFICULTY NAME IS EMPTY", 0xFFFF4455);
+			return false;
+		}
+
+		if (dirty)
+		{
+			setStatus("UNSAVED CHANGES - CTRL+S TO SAVE", 0xFFFFAA33);
+			return false;
+		}
+
+		var song = currentSong();
+
+		if (song == null)
+		{
+			setStatus("NO SONG SELECTED", 0xFFFF4455);
+			return false;
+		}
+
+		var index = -1;
+
+		for (i in 0...song.difficulties.length)
+		{
+			if (song.difficulties[i].toLowerCase() == difficulty)
+			{
+				index = i;
+				break;
+			}
+		}
+
+		if (index < 0)
+		{
+			song.difficulties.push(difficulty);
+			index = song.difficulties.length - 1;
+		}
+
+		selectedDifficulty = index;
+		loadCurrentChart();
+		setStatus('DIFFICULTY: ${currentDifficulty().toUpperCase()}', 0xFF66FF88);
+		return true;
+	}
+
+	function applyBpmInput(raw:String):Bool
+	{
+		var value = Std.parseFloat(StringTools.trim(raw));
+
+		if (Math.isNaN(value) || value <= 0 || value > 1000)
+		{
+			setStatus("BPM MUST BE A NUMBER BETWEEN 0 AND 1000", 0xFFFF4455);
+			return false;
+		}
+
+		if (chartData == null)
+			return false;
+
+		chartData.bpm = value;
+		songLength = computeSongLength();
+		refreshAll();
+		markDirty('BPM ${formatNumber(value)}');
+		return true;
+	}
+
+	function applySpeedInput(raw:String):Bool
+	{
+		var value = Std.parseFloat(StringTools.trim(raw));
+
+		if (Math.isNaN(value) || value < 0.05 || value > 20)
+		{
+			setStatus("SPEED MUST BE A NUMBER BETWEEN 0.05 AND 20", 0xFFFF4455);
+			return false;
+		}
+
+		if (chartData == null)
+			return false;
+
+		chartData.speed = value;
+		refreshAll();
+		markDirty('SPEED ${formatNumber(value)}');
+		return true;
+	}
+
+	function applyOffsetInput(raw:String):Bool
+	{
+		var value = Std.parseFloat(StringTools.trim(raw));
+
+		if (Math.isNaN(value) || value < -60000 || value > 60000)
+		{
+			setStatus("OFFSET MUST BE BETWEEN -60000 AND 60000 MS", 0xFFFF4455);
+			return false;
+		}
+
+		if (chartData == null)
+			return false;
+
+		chartData.offset = value;
+		songLength = computeSongLength();
+
+		if (playing)
+			startPlaybackAudio();
+		else
+			applyAudioPosition();
+
+		refreshAll();
+		markDirty('OFFSET ${formatNumber(value)} MS');
+		return true;
+	}
+
+	function findSongIndex(query:String):Int
+	{
+		var needle = query.toLowerCase();
+
+		for (i in 0...songs.length)
+		{
+			var song = songs[i];
+
+			if (song.folder.toLowerCase() == needle || song.displayName.toLowerCase() == needle)
+				return i;
+		}
+
+		for (i in 0...songs.length)
+		{
+			var song = songs[i];
+
+			if (song.folder.toLowerCase().indexOf(needle) >= 0 || song.displayName.toLowerCase().indexOf(needle) >= 0)
+				return i;
+		}
+
+		return -1;
+	}
+
+	function buildInputFields():Void
+	{
+		var defs:Array<{key:String, label:String, y:Float}> = [
+			{key: "song", label: "SONG (FOLDER OR NAME)", y: 84},
+			{key: "difficulty", label: "DIFFICULTY", y: 122},
+			{key: "bpm", label: "BPM", y: 160},
+			{key: "speed", label: "SCROLL SPEED", y: 198},
+			{key: "offset", label: "OFFSET (MS)", y: 236}
+		];
+
+		for (def in defs)
+		{
+			var x = LEFT_PANEL_X + 8;
+			var w = PANEL_W - 16;
+			var label = new FlxText(x, def.y, w, def.label, 9);
+			label.color = 0xFF666688;
+			add(label);
+
+			var background = new FlxSprite(x, def.y + 12);
+			background.makeGraphic(Std.int(w), 20, FlxColor.WHITE);
+			background.color = 0xFF0A0E16;
+			add(background);
+
+			var value = new FlxText(x + 4, def.y + 14, w - 8, "", 12);
+			value.color = 0xFFB8B8CC;
+			add(value);
+
+			inputFields.push({
+				key: def.key,
+				label: def.label,
+				x: x,
+				y: def.y + 12,
+				w: w,
+				h: 20,
+				background: background,
+				labelText: label,
+				valueText: value
+			});
+		}
+
+		refreshInputFields();
+	}
+
+	function buildAudioRows():Void
+	{
+		var defs:Array<{key:String, y:Float}> = [
+			{key: "inst", y: 294},
+			{key: "voices", y: 314},
+			{key: "player", y: 334},
+			{key: "opponent", y: 354}
+		];
+
+		for (def in defs)
+		{
+			var x = LEFT_PANEL_X + 8;
+			var w = PANEL_W - 16;
+			var text = new FlxText(x, def.y, w, "", 10);
+			text.color = 0xFF8888AA;
+			add(text);
+			audioRows.push({key: def.key, x: x, y: def.y - 1, w: w, h: 18, text: text});
+		}
+
+		refreshAudioTexts();
+	}
+
+	function refreshAudioTexts():Void
+	{
+		for (row in audioRows)
+		{
+			switch (row.key)
+			{
+				case "inst":
+					row.text.text = 'INST: ${instMuted ? "MUTED" : "ON"}';
+					row.text.color = instMuted ? 0xFFFFAA33 : 0xFF66FF88;
+				case "voices":
+					row.text.text = 'VOICES: ${voicesMuted ? "MUTED" : "ON"}';
+					row.text.color = voicesMuted ? 0xFFFFAA33 : 0xFF66FF88;
+				case "player":
+					var playerIndex = resolvedVoiceIndex(true);
+					row.text.text = 'PLAYER VOICE: ${voiceAssignmentLabel(playerIndex, playerVoiceIndex)}';
+					row.text.color = voicesMuted ? 0xFF666688 : 0xFF88AAFF;
+				case "opponent":
+					var opponentIndex = resolvedVoiceIndex(false);
+					row.text.text = 'OPP VOICE: ${voiceAssignmentLabel(opponentIndex, opponentVoiceIndex)}';
+					row.text.color = voicesMuted ? 0xFF666688 : 0xFFAA88AA;
+			}
+		}
+	}
+
+	function voiceAssignmentLabel(index:Int, explicitIndex:Int):String
+	{
+		if (index < 0 || index >= voiceFileNames.length)
+			return "NONE";
+
+		return (explicitIndex < 0 ? "AUTO " : "") + voiceFileNames[index];
+	}
+
+	function handleAudioClick(mouseX:Float, mouseY:Float):Bool
+	{
+		for (row in audioRows)
+		{
+			if (mouseX < row.x || mouseX > row.x + row.w || mouseY < row.y || mouseY > row.y + row.h)
+				continue;
+
+			switch (row.key)
+			{
+				case "inst":
+					instMuted = !instMuted;
+					updateAudioVolumes();
+					refreshAudioTexts();
+					setStatus(instMuted ? "INSTRUMENTAL MUTED" : "INSTRUMENTAL ON", 0xFF66CCFF);
+				case "voices":
+					voicesMuted = !voicesMuted;
+					updateAudioVolumes();
+					refreshAudioTexts();
+					setStatus(voicesMuted ? "VOICES MUTED" : "VOICES ON", 0xFF66CCFF);
+				case "player":
+					cycleVoiceAssignment(true);
+				case "opponent":
+					cycleVoiceAssignment(false);
+			}
+
+			return true;
+		}
+
+		return false;
+	}
+
+	function cycleVoiceAssignment(player:Bool):Void
+	{
+		if (voiceFileNames.length == 0)
+		{
+			setStatus("NO VOICE CHANNELS FOUND", 0xFFFFAA33);
+			return;
+		}
+
+		var current = resolvedVoiceIndex(player);
+		var next = current + 1;
+
+		if (next >= voiceFileNames.length)
+			next = -1;
+
+		assignVoice(player, next);
+	}
+
+	function assignVoice(player:Bool, index:Int):Void
+	{
+		if (voiceFileNames.length == 0)
+			return;
+
+		if (index >= voiceFileNames.length)
+			index = -1;
+
+		if (player)
+			playerVoiceIndex = index;
+		else
+			opponentVoiceIndex = index;
+
+		var suffix = index < 0 ? "" : voiceSuffix(voiceFileNames[index]);
+
+		if (chartData != null)
+		{
+			if (player)
+				chartData.playerVocalsSuffix = suffix;
+			else
+				chartData.opponentVocalsSuffix = suffix;
+		}
+
+		updateAudioVolumes();
+		refreshAudioTexts();
+		markDirty(player ? 'PLAYER VOICE ${index < 0 ? "AUTO" : voiceFileNames[index]}' : 'OPPONENT VOICE ${index < 0 ? "AUTO" : voiceFileNames[index]}');
+	}
+
+	function resolvedVoiceIndex(player:Bool):Int
+	{
+		if (voiceFileNames.length == 0)
+			return -1;
+
+		var explicit = player ? playerVoiceIndex : opponentVoiceIndex;
+
+		if (explicit >= 0 && explicit < voiceFileNames.length)
+			return explicit;
+
+		var suffix = chartData == null ? "" : (player ? chartData.playerVocalsSuffix : chartData.opponentVocalsSuffix);
+
+		if (suffix != null && suffix != "")
+		{
+			var normalized = normalizeVoiceSuffix(suffix);
+
+			for (i in 0...voiceFileNames.length)
+			{
+				if (normalizeVoiceSuffix(voiceSuffix(voiceFileNames[i])) == normalized)
+					return i;
+			}
+		}
+
+		return autoVoiceIndex(player);
+	}
+
+	function autoVoiceIndex(player:Bool):Int
+	{
+		var song = currentSong();
+		var needles:Array<String> = [];
+
+		if (chartData != null)
+			needles.push(player ? chartData.playerCharacter : chartData.opponentCharacter);
+
+		if (!player && chartData != null)
+			needles.push(chartData.gfVersion);
+
+		if (song != null)
+			needles.push(song.folder);
+
+		for (needle in needles)
+		{
+			if (needle == null || needle == "")
+				continue;
+
+			var lower = needle.toLowerCase();
+
+			for (i in 0...voiceFileNames.length)
+			{
+				if (voiceFileNames[i].toLowerCase().indexOf(lower) >= 0)
+					return i;
+			}
+		}
+
+		if (!player && voiceFileNames.length > 1)
+		{
+			var playerIndex = resolvedVoiceIndex(true);
+
+			for (i in 0...voiceFileNames.length)
+			{
+				if (i != playerIndex)
+					return i;
+			}
+		}
+
+		return 0;
+	}
+
+	static function voiceSuffix(file:String):String
+	{
+		var name = stripExtension(file);
+
+		if (name.toLowerCase().indexOf("voices") == 0)
+			name = name.substr(6);
+
+		return name;
+	}
+
+	static function normalizeVoiceSuffix(suffix:String):String
+	{
+		if (suffix == null)
+			return "";
+
+		var text = suffix.toLowerCase();
+
+		while (text.length > 0 && (text.substr(0, 1) == "-" || text.substr(0, 1) == "_"))
+			text = text.substr(1);
+
+		return text;
+	}
+
+	function updateAudioVolumes():Void
+	{
+		if (audio != null)
+			audio.volume = instMuted ? 0 : 1;
+
+		var playerIndex = resolvedVoiceIndex(true);
+		var opponentIndex = resolvedVoiceIndex(false);
+
+		for (i in 0...voiceSounds.length)
+		{
+			var audible = !voicesMuted && (i == playerIndex || i == opponentIndex);
+			voiceSounds[i].volume = audible ? 1 : 0;
+		}
 	}
 
 	function changeSong(delta:Int):Void
@@ -840,48 +1574,44 @@ class ChartEditorState extends FlxState
 		leftHeader.color = 0xFF7777AA;
 		add(leftHeader);
 
-		songText = new FlxText(LEFT_PANEL_X + 8, 88, PANEL_W - 16, "", 15);
-		songText.color = FlxColor.WHITE;
-		add(songText);
+		buildInputFields();
 
-		difficultyText = new FlxText(LEFT_PANEL_X + 8, 110, PANEL_W - 16, "", 15);
-		difficultyText.color = 0xFFAAAAAA;
-		add(difficultyText);
+		var audioHeader = new FlxText(LEFT_PANEL_X + 8, 276, PANEL_W - 16, "AUDIO CHANNELS", 12);
+		audioHeader.color = 0xFF7777AA;
+		add(audioHeader);
 
-		bpmText = new FlxText(LEFT_PANEL_X + 8, 132, PANEL_W - 16, "", 14);
-		bpmText.color = 0xFF8888AA;
-		add(bpmText);
+		buildAudioRows();
 
-		timeText = new FlxText(LEFT_PANEL_X + 8, 154, PANEL_W - 16, "", 14);
+		timeText = new FlxText(LEFT_PANEL_X + 8, 378, PANEL_W - 16, "", 12);
 		timeText.color = 0xFF66FF88;
 		add(timeText);
 
-		snapText = new FlxText(LEFT_PANEL_X + 8, 180, PANEL_W - 16, "", 14);
+		snapText = new FlxText(LEFT_PANEL_X + 8, 398, PANEL_W - 16, "", 12);
 		snapText.color = 0xFF8888AA;
 		add(snapText);
 
-		toolText = new FlxText(LEFT_PANEL_X + 8, 202, PANEL_W - 16, "", 14);
+		toolText = new FlxText(LEFT_PANEL_X + 8, 418, PANEL_W - 16, "", 12);
 		toolText.color = 0xFF8888AA;
 		add(toolText);
 
-		sideText = new FlxText(LEFT_PANEL_X + 8, 224, PANEL_W - 16, "", 14);
+		sideText = new FlxText(LEFT_PANEL_X + 8, 438, PANEL_W - 16, "", 12);
 		sideText.color = 0xFF8888AA;
 		add(sideText);
 
-		chartStatusText = new FlxText(LEFT_PANEL_X + 8, 250, PANEL_W - 16, "", 13);
+		chartStatusText = new FlxText(LEFT_PANEL_X + 8, 456, PANEL_W - 16, "", 10);
 		chartStatusText.color = 0xFFAAAAAA;
 		chartStatusText.wordWrap = true;
 		add(chartStatusText);
 
-		hoverText = new FlxText(LEFT_PANEL_X + 8, 356, PANEL_W - 16, "", 13);
+		hoverText = new FlxText(LEFT_PANEL_X + 8, 550, PANEL_W - 16, "", 10);
 		hoverText.color = 0xFFAAAAAA;
 		hoverText.wordWrap = true;
 		add(hoverText);
 
-		helpText = new FlxText(LEFT_PANEL_X + 8, 486, PANEL_W - 16, "", 11);
+		helpText = new FlxText(LEFT_PANEL_X + 8, 596, PANEL_W - 16, "", 9);
 		helpText.color = 0xFF666688;
 		helpText.wordWrap = true;
-		helpText.text = "SPACE PLAY/PAUSE\nLEFT/RIGHT SEEK SNAP\nUP/DOWN SEEK BEAT\nTAB SNAP   E TOOL   Q SIDE\n1-4 PLACE   SHIFT+1-4 HOLD\nCLICK GRID   RIGHT-CLICK ERASE\nCTRL+S SAVE\nF5/F6 SONG   F7/F8 DIFF\nESC BACK";
+		helpText.text = "ENTER APPLY  ESC CANCEL  TAB NEXT\nF5/F6 SONG  F7/F8 DIFF  CTRL+S SAVE";
 		add(helpText);
 
 		var rightHeader = new FlxText(RIGHT_PANEL_X + 8, 64, PANEL_W - 16, "EVENTS", 16);
@@ -961,17 +1691,16 @@ class ChartEditorState extends FlxState
 	{
 		var song = currentSong();
 
-		if (songText != null)
+		if (snapText != null)
 		{
-			songText.text = 'SONG: ${song == null ? "NONE" : song.displayName}';
-			difficultyText.text = 'DIFFICULTY: ${currentDifficulty().toUpperCase()}';
-			bpmText.text = 'BPM: ${formatNumber(bpm())}';
 			snapText.text = 'SNAP: ${SNAP_LABELS[snapIndex]}';
 			toolText.text = 'TOOL: ${TOOL_NAMES[tool]}';
 			sideText.text = 'SIDE: ${activePlayer ? "PLAYER" : "OPPONENT"}';
 			subtitleText.text = song == null ? "NO SONGS FOUND" : '${song.displayName.toUpperCase()}  -  ${currentDifficulty().toUpperCase()}';
 		}
 
+		refreshInputFields();
+		refreshAudioTexts();
 		refreshChartStatus();
 		refreshRuntimeText();
 	}
@@ -990,12 +1719,20 @@ class ChartEditorState extends FlxState
 		var lines:Array<String> = [];
 		lines.push('FORMAT: ${chartFormat()}');
 		lines.push('NOTES: ${chartData.notes.length}   EVENTS: ${chartData.events.length}');
-		lines.push('OFFSET: ${Std.int(chartData.offset)} ms');
-		lines.push('LENGTH: ${formatTime(songLength)}');
+		lines.push('BPM: ${formatNumber(bpm())}   SPEED: ${formatNumber(chartData.speed)}');
+		lines.push('OFFSET: ${formatNumber(chartData.offset)} ms   LENGTH: ${formatTime(songLength)}');
 		lines.push('AUDIO: ${audioLabel()}');
+		lines.push('WAVEFORM: $waveformSource');
 
-		if (voicesFileName != null)
-			lines.push('VOICES: $voicesFileName');
+		if (voiceFileNames.length > 0)
+		{
+			var voiceText = voiceFileNames.join(", ");
+
+			if (voiceText.length > 44)
+				voiceText = '${voiceFileNames[0]} +${voiceFileNames.length - 1}';
+
+			lines.push('VOICES: $voiceText');
+		}
 
 		if (loadFailed)
 			lines.push("SAVE BLOCKED: LOAD FAILED");
@@ -1030,28 +1767,44 @@ class ChartEditorState extends FlxState
 			return;
 		}
 
-		for (note in chartData.notes)
+		var audioLength = activeAudioLength();
+
+		if (audioWaveformPeaks != null && audioWaveformPeaks.length > 0 && audioLength > 0)
 		{
-			var bin = waveformBin(note.time);
-			densityBins[bin] += note.sustainLength > 0 ? 1.5 : 1.0;
-		}
+			for (i in 0...audioWaveformPeaks.length)
+			{
+				var time = chartData.offset + ((i + 0.5) / audioWaveformPeaks.length) * audioLength;
+				var bin = waveformBin(time);
 
-		for (event in chartData.events)
+				if (audioWaveformPeaks[i] > densityBins[bin])
+					densityBins[bin] = audioWaveformPeaks[i];
+			}
+		}
+		else
 		{
-			var bin = waveformBin(event.time);
-			densityBins[bin] += 0.5;
+			for (note in chartData.notes)
+			{
+				var bin = waveformBin(note.time);
+				densityBins[bin] += note.sustainLength > 0 ? 1.5 : 1.0;
+			}
+
+			for (event in chartData.events)
+			{
+				var bin = waveformBin(event.time);
+				densityBins[bin] += 0.5;
+			}
+
+			var maxDensity = 0.0;
+
+			for (value in densityBins)
+				maxDensity = Math.max(maxDensity, value);
+
+			if (maxDensity <= 0)
+				maxDensity = 1;
+
+			for (i in 0...densityBins.length)
+				densityBins[i] /= maxDensity;
 		}
-
-		var maxDensity = 0.0;
-
-		for (value in densityBins)
-			maxDensity = Math.max(maxDensity, value);
-
-		if (maxDensity <= 0)
-			maxDensity = 1;
-
-		for (i in 0...densityBins.length)
-			densityBins[i] /= maxDensity;
 
 		for (i in 1...densityBins.length - 1)
 			densityBins[i] = (densityBins[i - 1] + densityBins[i] * 2 + densityBins[i + 1]) * 0.25;
@@ -1390,14 +2143,14 @@ class ChartEditorState extends FlxState
 
 	function audioLabel():String
 	{
-		if (audio != null && voices != null)
-			return "INST + VOICES";
+		if (audio != null && voiceSounds.length > 0)
+			return 'INST + ${voiceSounds.length} VOICE${voiceSounds.length == 1 ? "" : "S"}';
 
 		if (audio != null)
 			return "INST.OGG";
 
-		if (voices != null)
-			return "VOICES ONLY";
+		if (voiceSounds.length > 0)
+			return '${voiceSounds.length} VOICE${voiceSounds.length == 1 ? "" : "S"} ONLY';
 
 		return "SIMULATED";
 	}
@@ -1409,8 +2162,8 @@ class ChartEditorState extends FlxState
 		if (audio != null)
 			length = Math.max(length, audio.length);
 
-		if (voices != null)
-			length = Math.max(length, voices.length);
+		for (sound in voiceSounds)
+			length = Math.max(length, sound.length);
 
 		return length;
 	}
@@ -1425,8 +2178,8 @@ class ChartEditorState extends FlxState
 		if (audio != null)
 			audio.time = clamp(target, 0, audio.length);
 
-		if (voices != null)
-			voices.time = clamp(target, 0, voices.length);
+		for (sound in voiceSounds)
+			sound.time = clamp(target, 0, sound.length);
 	}
 
 	function startPlaybackAudio():Void
@@ -1436,8 +2189,8 @@ class ChartEditorState extends FlxState
 		if (audio != null)
 			audio.play();
 
-		if (voices != null)
-			voices.play();
+		for (sound in voiceSounds)
+			sound.play();
 	}
 
 	function updatePlayback(elapsed:Float):Void
@@ -1445,21 +2198,42 @@ class ChartEditorState extends FlxState
 		if (!playing || chartData == null)
 			return;
 
-		if (audio != null || voices != null)
+		if (audio != null || voiceSounds.length > 0)
 		{
-			var syncSound = (audio != null && audio.playing) ? audio : voices;
+			var syncSound = (audio != null && audio.playing) ? audio : null;
+
+			if (syncSound == null)
+			{
+				for (sound in voiceSounds)
+				{
+					if (sound.playing)
+					{
+						syncSound = sound;
+						break;
+					}
+				}
+			}
 
 			if (syncSound == null)
 				syncSound = audio;
 
-			chartTime = syncSound.time + chartData.offset;
-
-			if (audio != null && voices != null && voices.playing)
+			if (syncSound != null)
 			{
-				var target = clamp(audio.time, 0, voices.length);
+				chartTime = syncSound.time + chartData.offset;
 
-				if (Math.abs(voices.time - target) > 80)
-					voices.time = target;
+				if (audio != null && audio.playing)
+				{
+					for (sound in voiceSounds)
+					{
+						if (!sound.playing)
+							continue;
+
+						var target = clamp(audio.time, 0, sound.length);
+
+						if (Math.abs(sound.time - target) > 80)
+							sound.time = target;
+					}
+				}
 			}
 
 			if (chartTime >= songLength)
@@ -1508,8 +2282,8 @@ class ChartEditorState extends FlxState
 		if (audio != null)
 			audio.pause();
 
-		if (voices != null)
-			voices.pause();
+		for (sound in voiceSounds)
+			sound.pause();
 	}
 
 	function seekTo(time:Float):Void
@@ -1810,14 +2584,20 @@ class ChartEditorState extends FlxState
 		return lower.indexOf("voices") == 0 && lower.indexOf(".ogg") == lower.length - 4;
 	}
 
-	function findVoicesFileName(song:EditorSong):String
+	function findVoiceFileNames(song:EditorSong):Array<String>
 	{
-		var candidates = ["Voices.ogg", 'Voices-${song.folder}.ogg'];
+		var result:Array<String> = [];
+		var seen:Map<String, Bool> = new Map();
+
+		if (song == null)
+			return result;
+
+		var candidates = ['Voices-${song.folder}.ogg', "Voices.ogg"];
 
 		for (candidate in candidates)
 		{
 			if (audioFileExists(song, candidate))
-				return candidate;
+				addUniqueFile(result, seen, candidate);
 		}
 
 		#if sys
@@ -1832,7 +2612,7 @@ class ChartEditorState extends FlxState
 					for (file in FileSystem.readDirectory(dir))
 					{
 						if (isVoiceFile(file))
-							return file;
+							addUniqueFile(result, seen, file);
 					}
 				}
 			}
@@ -1855,18 +2635,40 @@ class ChartEditorState extends FlxState
 					continue;
 
 				if (isVoiceFile(file))
-					return file;
+					addUniqueFile(result, seen, file);
 			}
 		}
 		catch (error:Dynamic) {}
 
-		return null;
+		return result;
+	}
+
+	static function addUniqueFile(result:Array<String>, seen:Map<String, Bool>, file:String):Void
+	{
+		if (file == null)
+			return;
+
+		var key = file.toLowerCase();
+
+		if (seen.exists(key))
+			return;
+
+		seen.set(key, true);
+		result.push(file);
 	}
 
 	function onAudioComplete():Void
 	{
-		if ((audio == null || !audio.playing) && (voices == null || !voices.playing))
-			pausePlayback();
+		if (audio != null && audio.playing)
+			return;
+
+		for (sound in voiceSounds)
+		{
+			if (sound.playing)
+				return;
+		}
+
+		pausePlayback();
 	}
 
 	function loadAudio():Void
@@ -1879,16 +2681,31 @@ class ChartEditorState extends FlxState
 			return;
 
 		audio = loadSongSound(song, "Inst.ogg");
-		voicesFileName = findVoicesFileName(song);
-		voices = voicesFileName == null ? null : loadSongSound(song, voicesFileName);
 
 		if (audio != null)
 			audio.onComplete = onAudioComplete;
 
-		if (voices != null)
-			voices.onComplete = onAudioComplete;
+		var files = findVoiceFileNames(song);
+		var loadedFiles:Array<String> = [];
 
-		if (audio == null && voices == null)
+		for (file in files)
+		{
+			var sound = loadSongSound(song, file);
+
+			if (sound == null)
+				continue;
+
+			sound.onComplete = onAudioComplete;
+			voiceSounds.push(sound);
+			loadedFiles.push(file);
+		}
+
+		voiceFileNames = loadedFiles;
+
+		loadAudioWaveform(song);
+		updateAudioVolumes();
+
+		if (audio == null && voiceSounds.length == 0)
 			FlxG.log.warn('Chart editor: no audio for ${song.folder}; using simulated playback');
 	}
 
@@ -1901,14 +2718,175 @@ class ChartEditorState extends FlxState
 			audio = null;
 		}
 
-		if (voices != null)
+		for (sound in voiceSounds)
 		{
-			voices.stop();
-			voices.destroy();
-			voices = null;
+			sound.stop();
+			sound.destroy();
 		}
 
-		voicesFileName = null;
+		voiceSounds = [];
+		voiceFileNames = [];
+		playerVoiceIndex = -1;
+		opponentVoiceIndex = -1;
+		instMuted = false;
+		voicesMuted = false;
+		audioWaveformPeaks = null;
+		waveformSource = "DENSITY";
+	}
+
+	function loadAudioWaveform(song:EditorSong):Void
+	{
+		audioWaveformPeaks = null;
+		waveformSource = "DENSITY";
+
+		var files:Array<String> = [];
+
+		if (audioFileExists(song, "Inst.ogg"))
+			files.push("Inst.ogg");
+
+		for (file in voiceFileNames)
+		{
+			if (files.indexOf(file) < 0)
+				files.push(file);
+		}
+
+		for (file in files)
+		{
+			var peaks = buildAudioWaveformPeaks(song, file);
+
+			if (peaks == null)
+				continue;
+
+			var maxPeak = 0.0;
+
+			for (value in peaks)
+				maxPeak = Math.max(maxPeak, value);
+
+			if (maxPeak <= 0.0001)
+				continue;
+
+			audioWaveformPeaks = peaks;
+			waveformSource = "AUDIO";
+			return;
+		}
+	}
+
+	function buildAudioWaveformPeaks(song:EditorSong, fileName:String):Array<Float>
+	{
+		#if (sys && lime_vorbis)
+		try
+		{
+			var vorbis:VorbisFile = null;
+
+			if (song.physicalRoot != null)
+			{
+				var physicalPath = '${song.physicalRoot}/song/$fileName';
+
+				if (fileExists(physicalPath))
+					vorbis = VorbisFile.fromFile(physicalPath);
+			}
+
+			if (vorbis == null)
+			{
+				var virtualPath = '$SONG_ROOT${song.folder}/song/$fileName';
+
+				if (assetExists(virtualPath))
+				{
+					var bytes = Assets.getBytes(virtualPath);
+
+					if (bytes != null)
+						vorbis = VorbisFile.fromBytes(bytes);
+				}
+			}
+
+			if (vorbis == null)
+				return null;
+
+			var info = vorbis.info();
+			var totalFrames = Int64.toInt(vorbis.pcmTotal());
+
+			if (info == null || info.channels <= 0 || totalFrames <= 0)
+			{
+				vorbis.clear();
+				return null;
+			}
+
+			var peaks:Array<Float> = [];
+
+			for (i in 0...WAVEFORM_BINS)
+				peaks.push(0);
+
+			var buffer = Bytes.alloc(65536);
+			var bytesPerFrame = info.channels * 2;
+			var frameIndex = 0;
+			var stride = Std.int(Math.max(1, totalFrames / 300000));
+
+			while (frameIndex < totalFrames)
+			{
+				var read = vorbis.read(buffer, 0, buffer.length, false, 2, true);
+
+				if (read <= 0)
+					break;
+
+				var frames = Std.int(read / bytesPerFrame);
+
+				if (frames <= 0)
+					break;
+
+				var frame = 0;
+
+				while (frame < frames)
+				{
+					var peak = 0.0;
+					var base = frame * bytesPerFrame;
+
+					for (channel in 0...info.channels)
+					{
+						var sample = buffer.getUInt16(base + channel * 2) - 32768;
+						var value = Math.abs(sample) / 32768.0;
+
+						if (value > peak)
+							peak = value;
+					}
+
+					var bin = Std.int(((frameIndex + frame) / totalFrames) * (WAVEFORM_BINS - 1));
+
+					if (bin < 0)
+						bin = 0;
+					if (bin >= WAVEFORM_BINS)
+						bin = WAVEFORM_BINS - 1;
+
+					if (peak > peaks[bin])
+						peaks[bin] = peak;
+
+					frame += stride;
+				}
+
+				frameIndex += frames;
+			}
+
+			vorbis.clear();
+
+			var maxPeak = 0.0;
+
+			for (value in peaks)
+				maxPeak = Math.max(maxPeak, value);
+
+			if (maxPeak <= 0.0001)
+				return peaks;
+
+			for (i in 0...peaks.length)
+				peaks[i] = Math.pow(peaks[i] / maxPeak, 0.65);
+
+			return peaks;
+		}
+		catch (error:Dynamic)
+		{
+			return null;
+		}
+		#else
+		return null;
+		#end
 	}
 
 	function computeSongLength():Float
@@ -1965,6 +2943,7 @@ class ChartEditorState extends FlxState
 			if (rawSongData == null)
 				rawSongData = nestedSong(rawRoot);
 
+			writeChartMeta(rawRoot, rawSongData);
 			writeEvents(rawRoot, rawSongData);
 
 			if (hasStrumLines())
@@ -2080,6 +3059,22 @@ class ChartEditorState extends FlxState
 		Reflect.setField(rawRoot, "strumLines", createDefaultStrumLines());
 	}
 
+	function writeChartMeta(root:Dynamic, songData:Dynamic):Void
+	{
+		if (chartData == null)
+			return;
+
+		var target = songData != null && Reflect.isObject(songData) ? songData : root;
+
+		if (target == null)
+			return;
+
+		Reflect.setField(target, "bpm", chartData.bpm);
+		Reflect.setField(target, "scrollSpeed", chartData.speed);
+		Reflect.setField(target, "speed", chartData.speed);
+		Reflect.setField(target, "offset", chartData.offset);
+	}
+
 	function writeEvents(root:Dynamic, songData:Dynamic):Void
 	{
 		var rawEvents:Array<Dynamic> = [];
@@ -2153,6 +3148,12 @@ class ChartEditorState extends FlxState
 		opponentNotes.sort(compareDynamicNotes);
 		Reflect.setField(playerLine, "notes", playerNotes);
 		Reflect.setField(opponentLine, "notes", opponentNotes);
+
+		if (chartData != null)
+		{
+			Reflect.setField(playerLine, "vocalsSuffix", chartData.playerVocalsSuffix);
+			Reflect.setField(opponentLine, "vocalsSuffix", chartData.opponentVocalsSuffix);
+		}
 
 		var target:Dynamic = songData;
 
@@ -2706,14 +3707,24 @@ class ChartEditorState extends FlxState
 		return start + lane * LANE_WIDTH + LANE_WIDTH * 0.5;
 	}
 
+	inline function scrollSpeed():Float
+	{
+		return chartData != null && chartData.speed > 0 ? chartData.speed : 1;
+	}
+
+	inline function pixelsPerMs():Float
+	{
+		return PIXELS_PER_MS * scrollSpeed();
+	}
+
 	inline function timeToY(time:Float):Float
 	{
-		return PLAYHEAD_Y + (time - chartTime) * PIXELS_PER_MS;
+		return PLAYHEAD_Y + (time - chartTime) * pixelsPerMs();
 	}
 
 	inline function yToTime(y:Float):Float
 	{
-		return chartTime + (y - PLAYHEAD_Y) / PIXELS_PER_MS;
+		return chartTime + (y - PLAYHEAD_Y) / pixelsPerMs();
 	}
 
 	inline function bpm():Float
