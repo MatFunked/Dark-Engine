@@ -9,64 +9,78 @@ class SongAudio
 	static inline var VOICE_VOLUME:Float = 1.0;
 
 	public var inst(default, null):FlxSound;
-	public var opponentVoices(default, null):FlxSound;
-	public var playerVoices(default, null):FlxSound;
+	public var voicesGroup(default, null):Array<FlxSound> = [];
+	public var voicePaths(default, null):Array<String> = [];
 	public var syncThreshold:Float = 25;
 
+	var voiceAssignments:Map<Int, Int> = new Map();
+	var lineMuted:Map<Int, Bool> = new Map();
 	var started:Bool = false;
 	var finished:Bool = false;
 
 	public function new() {}
 
-	public function load(instPath:String, opponentVoicesPath:String, playerVoicesPath:String):Void
+	public function loadSong(instPath:String, voicePaths:Array<String>, ?voiceAssignments:Map<Int, Int>):Void
 	{
-		inst = FlxG.sound.load(instPath, INST_VOLUME, false, null, false, false);
-		opponentVoices = FlxG.sound.load(opponentVoicesPath, VOICE_VOLUME, false, null, false, false);
-		playerVoices = FlxG.sound.load(playerVoicesPath, VOICE_VOLUME, false, null, false, false);
+		destroy();
 
-		if (inst == null || opponentVoices == null || playerVoices == null)
-			throw "Could not load song audio";
+		inst = FlxG.sound.load(instPath, INST_VOLUME, false, null, false, false);
+
+		if (inst == null)
+			throw "Could not load instrumental track";
 
 		inst.onComplete = markFinished;
-	}
 
-	public function loadSingleVoices(instPath:String, voicesPath:String):Void
-	{
-		inst = FlxG.sound.load(instPath, INST_VOLUME, false, null, false, false);
-		opponentVoices = null;
-		playerVoices = FlxG.sound.load(voicesPath, VOICE_VOLUME, false, null, false, false);
+		this.voicePaths = voicePaths == null ? [] : voicePaths.copy();
+		this.voiceAssignments = voiceAssignments == null ? new Map() : voiceAssignments;
 
-		if (inst == null || playerVoices == null)
-			throw "Could not load song audio";
+		for (path in this.voicePaths)
+		{
+			var sound = FlxG.sound.load(path, VOICE_VOLUME, false, null, false, false);
 
-		inst.onComplete = markFinished;
+			if (sound == null)
+				continue;
+
+			sound.onComplete = markFinished;
+			voicesGroup.push(sound);
+		}
+
+		refreshVolumes();
 	}
 
 	public function play():Void
 	{
-		if (inst == null || playerVoices == null)
+		if (inst == null)
 			return;
 
 		finished = false;
+		lineMuted = new Map();
 		inst.play();
-		playerVoices.play();
-		playerVoices.time = inst.time;
 
-		if (opponentVoices != null)
+		for (sound in voicesGroup)
 		{
-			opponentVoices.play();
-			opponentVoices.time = inst.time;
+			sound.play();
+			sound.time = inst.time;
 		}
 
+		refreshVolumes();
 		started = true;
 	}
 
-	public function setPlayerVocalsMuted(muted:Bool):Void
+	public function setStrumLineMuted(strumLineIndex:Int, muted:Bool):Void
 	{
-		if (playerVoices == null)
-			return;
+		lineMuted.set(strumLineIndex, muted);
+		refreshVolumes();
+	}
 
-		playerVoices.volume = muted ? 0.0 : VOICE_VOLUME;
+	public function isStrumLineMuted(strumLineIndex:Int):Bool
+	{
+		return lineMuted.exists(strumLineIndex) && lineMuted.get(strumLineIndex);
+	}
+
+	public function getVoiceChannel(strumLineIndex:Int):Int
+	{
+		return voiceAssignments.exists(strumLineIndex) ? voiceAssignments.get(strumLineIndex) : -1;
 	}
 
 	public function update():Void
@@ -80,29 +94,50 @@ class SongAudio
 	public function pause():Void
 	{
 		pauseSound(inst);
-		pauseSound(opponentVoices);
-		pauseSound(playerVoices);
+
+		for (sound in voicesGroup)
+			pauseSound(sound);
 	}
 
 	public function resume():Void
 	{
 		resumeSound(inst);
-		resumeSound(opponentVoices);
-		resumeSound(playerVoices);
+
+		for (sound in voicesGroup)
+			resumeSound(sound);
 	}
 
 	public function stop():Void
 	{
 		started = false;
 		finished = false;
+		lineMuted = new Map();
 		stopSound(inst);
-		stopSound(opponentVoices);
-		stopSound(playerVoices);
+
+		for (sound in voicesGroup)
+			stopSound(sound);
 	}
 
 	public function destroy():Void
 	{
 		stop();
+
+		if (inst != null)
+		{
+			inst.destroy();
+			inst = null;
+		}
+
+		for (sound in voicesGroup)
+		{
+			if (sound != null)
+				sound.destroy();
+		}
+
+		voicesGroup = [];
+		voicePaths = [];
+		voiceAssignments = new Map();
+		lineMuted = new Map();
 	}
 
 	public function getTime():Float
@@ -127,8 +162,8 @@ class SongAudio
 
 	function syncTo(time:Float):Void
 	{
-		syncTrack(opponentVoices, time);
-		syncTrack(playerVoices, time);
+		for (sound in voicesGroup)
+			syncTrack(sound, time);
 	}
 
 	function syncTrack(track:FlxSound, time:Float):Void
@@ -138,6 +173,47 @@ class SongAudio
 
 		if (Math.abs(track.time - time) > syncThreshold)
 			track.time = time;
+	}
+
+	function refreshVolumes():Void
+	{
+		if (voicesGroup.length == 0)
+			return;
+
+		var hasAssignments = false;
+
+		for (_ in voiceAssignments.keys())
+		{
+			hasAssignments = true;
+			break;
+		}
+
+		if (hasAssignments)
+		{
+			for (channel in 0...voicesGroup.length)
+			{
+				var audible = false;
+
+				for (lineIndex in voiceAssignments.keys())
+				{
+					if (voiceAssignments.get(lineIndex) != channel)
+						continue;
+
+					if (!lineMuted.exists(lineIndex) || !lineMuted.get(lineIndex))
+					{
+						audible = true;
+						break;
+					}
+				}
+
+				voicesGroup[channel].volume = audible ? VOICE_VOLUME : 0;
+			}
+		}
+		else
+		{
+			for (sound in voicesGroup)
+				sound.volume = VOICE_VOLUME;
+		}
 	}
 
 	inline function pauseSound(sound:FlxSound):Void

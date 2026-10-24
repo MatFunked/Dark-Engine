@@ -9,6 +9,9 @@ class FNFChartParser
 		if (timeMode == null)
 			timeMode = ChartTimeMode.AbsoluteMs;
 
+		if (json != null && json.length > 0 && json.charCodeAt(0) == 0xFEFF)
+			json = json.substr(1);
+
 		var root:Dynamic;
 
 		try
@@ -59,6 +62,11 @@ class FNFChartParser
 		chart.stage = stringValue(Reflect.field(songData, "stage"), "stage");
 		chart.needsVoices = boolValue(Reflect.field(songData, "needsVoices"), true);
 		chart.offset = numberValue(Reflect.field(songData, "offset"), 0);
+
+		var opponentLine = new StrumLineData(0, "dad", 4, [chart.opponentCharacter]);
+		var playerLine = new StrumLineData(1, "boyfriend", 4, [chart.playerCharacter]);
+		chart.strumLines.push(opponentLine);
+		chart.strumLines.push(playerLine);
 
 		var sectionsData:Array<Dynamic> = cast rawSections;
 		var currentBpm = chart.bpm;
@@ -140,10 +148,13 @@ class FNFChartParser
 
 					var direction:NoteDirection = lane;
 					var isPlayer = mustHitSection == (rawData < 4);
+					var lineIndex = isPlayer ? playerLine.index : opponentLine.index;
+					var line = chart.strumLines[lineIndex];
 					var noteTime = convertTime(rawTime, currentTime, currentBpm, timeMode);
-					var note = new ChartNote(noteTime, direction, rawData, sustainLength, isPlayer, noteType, i);
+					var note = new ChartNote(noteTime, direction, rawData, sustainLength, isPlayer, noteType, i, lineIndex, lane);
 					section.notes.push(note);
 					chart.notes.push(note);
+					line.notes.push(note);
 				}
 			}
 
@@ -153,6 +164,10 @@ class FNFChartParser
 		}
 
 		chart.notes.sort(compareNotes);
+
+		for (line in chart.strumLines)
+			line.notes.sort(compareNotes);
+
 		chart.events = parseEvents(root, songData);
 		buildCameraSections(chart);
 		return chart;
@@ -268,6 +283,11 @@ class FNFChartParser
 		if (chart.bpm > 0)
 			chart.bpmChanges.push(new BpmChange(0, chart.bpm, 0));
 
+		var playerCharacterSet = false;
+		var opponentCharacterSet = false;
+		var playerSuffixSet = false;
+		var opponentSuffixSet = false;
+
 		for (i in 0...rawStrumLines.length)
 		{
 			var strumLine:Dynamic = rawStrumLines[i];
@@ -275,31 +295,74 @@ class FNFChartParser
 			if (strumLine == null)
 				continue;
 
-			var position = stringValue(Reflect.field(strumLine, "position"), "").toLowerCase();
-			var isPlayer = position == "bf" || position == "boyfriend" || position == "player" || position == "both";
-			var isOpponent = position == "dad" || position == "opponent";
-			var vocalsSuffix = stringValue(Reflect.field(strumLine, "vocalsSuffix"), "");
+			var position = StrumLineData.normalizePosition(stringValue(Reflect.field(strumLine, "position"), ""));
 
-			if (isPlayer)
-				chart.playerVocalsSuffix = vocalsSuffix;
-			else if (isOpponent)
-				chart.opponentVocalsSuffix = vocalsSuffix;
+			if (!StrumLineData.isPlayerPosition(position) && !StrumLineData.isOpponentPosition(position))
+				position = i == 0 ? "dad" : "player";
+
+			var keyCount = intValue(Reflect.field(strumLine, "keyCount"), 4);
+
+			if (keyCount <= 0)
+				keyCount = 4;
+
+			var vocalsSuffix = stringValue(Reflect.field(strumLine, "vocalsSuffix"), "");
+			var characters:Array<String> = [];
 
 			var rawCharacters:Dynamic = Reflect.field(strumLine, "characters");
 
 			if (Std.isOfType(rawCharacters, Array))
 			{
-				var characters:Array<Dynamic> = cast rawCharacters;
-
-				if (characters.length > 0)
+				for (character in cast(rawCharacters, Array<Dynamic>))
 				{
-					var character = Std.string(characters[0]);
-
-					if (isPlayer)
-						chart.playerCharacter = character;
-					else if (isOpponent)
-						chart.opponentCharacter = character;
+					if (character != null && Std.string(character) != "")
+						characters.push(Std.string(character));
 				}
+			}
+
+			var line = new StrumLineData(i, position, keyCount, characters, vocalsSuffix);
+			line.strumLinePos = numberValue(Reflect.field(strumLine, "strumLinePos"), -1);
+			line.strumScale = numberValue(Reflect.field(strumLine, "strumScale"), 1);
+			line.visible = boolValue(Reflect.field(strumLine, "visible"), true);
+			line.scrollSpeed = numberValue(Reflect.field(strumLine, "scrollSpeed"), 1);
+
+			var rawKeys:Dynamic = Reflect.field(strumLine, "keys");
+
+			if (!Std.isOfType(rawKeys, Array))
+				rawKeys = Reflect.field(strumLine, "keyBindings");
+
+			if (Std.isOfType(rawKeys, Array))
+			{
+				for (key in cast(rawKeys, Array<Dynamic>))
+				{
+					if (key != null)
+						line.keys.push(Std.string(key));
+				}
+			}
+
+			chart.strumLines.push(line);
+
+			if (line.isPlayer && !playerCharacterSet)
+			{
+				chart.playerCharacter = line.primaryCharacter();
+				chart.player1 = chart.playerCharacter;
+				playerCharacterSet = true;
+			}
+			else if (line.isOpponent && !opponentCharacterSet)
+			{
+				chart.opponentCharacter = line.primaryCharacter();
+				chart.player2 = chart.opponentCharacter;
+				opponentCharacterSet = true;
+			}
+
+			if (line.isPlayer && !playerSuffixSet)
+			{
+				chart.playerVocalsSuffix = line.vocalsSuffix;
+				playerSuffixSet = true;
+			}
+			else if (line.isOpponent && !opponentSuffixSet)
+			{
+				chart.opponentVocalsSuffix = line.vocalsSuffix;
+				opponentSuffixSet = true;
 			}
 
 			var rawNotes:Dynamic = Reflect.field(strumLine, "notes");
@@ -314,21 +377,35 @@ class FNFChartParser
 				if (rawNote == null)
 					continue;
 
-				var lane = intValue(Reflect.field(rawNote, "id"), 0) % 4;
+				var lane = intValue(Reflect.field(rawNote, "id"), 0) % line.keyCount;
 
 				if (lane < 0)
-					lane += 4;
+					lane += line.keyCount;
 
 				var rawTime = numberValue(Reflect.field(rawNote, "time"), 0);
 				var sustainLength = Math.max(0, numberValue(Reflect.field(rawNote, "sLen"), 0));
 				var rawNoteType = Reflect.field(rawNote, "type");
 				var noteType = rawNoteType == null ? "" : Std.string(rawNoteType);
-				var note = new ChartNote(rawTime, cast lane, lane, sustainLength, isPlayer, noteType, i);
+				var direction:NoteDirection = cast(lane % 4, NoteDirection);
+				var note = new ChartNote(rawTime, direction, lane, sustainLength, line.isPlayer, noteType, i, i, lane);
 				chart.notes.push(note);
+				line.notes.push(note);
 			}
 		}
 
+		if (chart.strumLines.length == 0)
+		{
+			var fallbackOpponent = new StrumLineData(0, "dad", 4, [chart.opponentCharacter]);
+			var fallbackPlayer = new StrumLineData(1, "boyfriend", 4, [chart.playerCharacter]);
+			chart.strumLines.push(fallbackOpponent);
+			chart.strumLines.push(fallbackPlayer);
+		}
+
 		chart.notes.sort(compareNotes);
+
+		for (line in chart.strumLines)
+			line.notes.sort(compareNotes);
+
 		chart.events = parseEvents(root, songData);
 		return chart;
 	}

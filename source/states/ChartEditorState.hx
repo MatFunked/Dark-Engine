@@ -5,6 +5,7 @@ import chart.ChartNote;
 import chart.ChartTimeMode;
 import chart.FNFChart;
 import chart.FNFChartParser;
+import chart.StrumLineData;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
@@ -118,8 +119,8 @@ class ChartEditorState extends FlxState
 	static inline var GRID_WAVE_BARS:Int = 96;
 	static inline var TIMELINE_BAR_WIDTH:Float = 5;
 
-	static var SNAP_LABELS:Array<String> = ["1/4", "1/8", "1/12", "1/16", "1/24", "1/32", "1/48", "1/64"];
-	static var SNAP_DIVISIONS:Array<Float> = [1, 2, 3, 4, 6, 8, 12, 16];
+	static var SNAP_LABELS:Array<String> = ["1/4", "1/8", "1/16", "1/32", "1/64"];
+	static var SNAP_DIVISIONS:Array<Float> = [1, 2, 4, 8, 16];
 	static var DIRECTION_NAMES:Array<String> = ["LEFT", "DOWN", "UP", "RIGHT"];
 	static var TOOL_NAMES:Array<String> = ["PLACE", "ERASE", "SUSTAIN"];
 	static var EVENT_TYPES:Array<String> = ["Camera Movement", "Camera Zoom", "Trigger Minigame", "Camera Flash"];
@@ -133,7 +134,7 @@ class ChartEditorState extends FlxState
 	var songs:Array<EditorSong> = [];
 	var selectedSong:Int = 0;
 	var selectedDifficulty:Int = 0;
-	var snapIndex:Int = 3;
+	var snapIndex:Int = 2;
 	var tool:Int = 0;
 	var activePlayer:Bool = true;
 	var selectedDirection:Int = 0;
@@ -154,8 +155,15 @@ class ChartEditorState extends FlxState
 	var voiceFileNames:Array<String> = [];
 	var instMuted:Bool = false;
 	var voicesMuted:Bool = false;
-	var playerVoiceIndex:Int = -1;
-	var opponentVoiceIndex:Int = -1;
+	var voiceAssignments:Map<Int, Int> = new Map();
+	var voicePanelOpen:Bool = false;
+	var voicePanelStage:Int = 0;
+	var voicePanelLine:Int = -1;
+	var voicePanelBackground:FlxSprite;
+	var voicePanelTitle:FlxText;
+	var voicePanelRows:Array<EditorAudioRow> = [];
+	var snapButtons:Array<EditorAudioRow> = [];
+	var snapButtonBackgrounds:Array<FlxSprite> = [];
 	var audioWaveformPeaks:Array<Float> = null;
 	var waveformSource:String = "DENSITY";
 	var inputFields:Array<EditorInputField> = [];
@@ -255,6 +263,12 @@ class ChartEditorState extends FlxState
 
 		if (FlxG.keys.justPressed.ESCAPE)
 		{
+			if (voicePanelOpen)
+			{
+				closeVoicePanel();
+				return;
+			}
+
 			if (dirty && !exitArmed)
 			{
 				exitArmed = true;
@@ -479,6 +493,12 @@ class ChartEditorState extends FlxState
 
 	function handleLeftClick(mouseX:Float, mouseY:Float):Void
 	{
+		if (voicePanelOpen)
+		{
+			if (handleVoicePanelClick(mouseX, mouseY))
+				return;
+		}
+
 		if (handleInputClick(mouseX, mouseY))
 			return;
 
@@ -972,8 +992,7 @@ class ChartEditorState extends FlxState
 		var defs:Array<{key:String, y:Float}> = [
 			{key: "inst", y: 294},
 			{key: "voices", y: 314},
-			{key: "player", y: 334},
-			{key: "opponent", y: 354}
+			{key: "assign", y: 334}
 		];
 
 		for (def in defs)
@@ -989,6 +1008,42 @@ class ChartEditorState extends FlxState
 		refreshAudioTexts();
 	}
 
+	function buildSnapButtons():Void
+	{
+		var x = LEFT_PANEL_X + 8;
+		var totalWidth = PANEL_W - 16;
+		var buttonWidth = totalWidth / SNAP_LABELS.length;
+		var y = 416;
+
+		for (i in 0...SNAP_LABELS.length)
+		{
+			var bx = x + i * buttonWidth;
+			var background = new FlxSprite(bx, y);
+			background.makeGraphic(Std.int(buttonWidth - 2), 18, FlxColor.WHITE);
+			background.color = 0xFF0A0E16;
+			add(background);
+			snapButtonBackgrounds.push(background);
+
+			var text = new FlxText(bx, y + 1, buttonWidth - 2, SNAP_LABELS[i], 10);
+			text.alignment = FlxTextAlign.CENTER;
+			text.color = 0xFF7777AA;
+			add(text);
+			snapButtons.push({key: 'snap:$i', x: bx, y: y, w: buttonWidth - 2, h: 18, text: text});
+		}
+
+		refreshSnapButtons();
+	}
+
+	function refreshSnapButtons():Void
+	{
+		for (i in 0...snapButtons.length)
+		{
+			var selected = i == snapIndex;
+			snapButtons[i].text.color = selected ? FlxColor.WHITE : 0xFF666688;
+			snapButtonBackgrounds[i].color = selected ? 0xFF26304A : 0xFF0A0E16;
+		}
+	}
+
 	function refreshAudioTexts():Void
 	{
 		for (row in audioRows)
@@ -1001,28 +1056,32 @@ class ChartEditorState extends FlxState
 				case "voices":
 					row.text.text = 'VOICES: ${voicesMuted ? "MUTED" : "ON"}';
 					row.text.color = voicesMuted ? 0xFFFFAA33 : 0xFF66FF88;
-				case "player":
-					var playerIndex = resolvedVoiceIndex(true);
-					row.text.text = 'PLAYER VOICE: ${voiceAssignmentLabel(playerIndex, playerVoiceIndex)}';
-					row.text.color = voicesMuted ? 0xFF666688 : 0xFF88AAFF;
-				case "opponent":
-					var opponentIndex = resolvedVoiceIndex(false);
-					row.text.text = 'OPP VOICE: ${voiceAssignmentLabel(opponentIndex, opponentVoiceIndex)}';
-					row.text.color = voicesMuted ? 0xFF666688 : 0xFFAA88AA;
+				case "assign":
+					var lineCount = chartData == null ? 0 : chartData.strumLines.length;
+					row.text.text = 'ASSIGN VOICES (${lineCount} LINES)...';
+					row.text.color = lineCount == 0 ? 0xFF666688 : 0xFF88AAFF;
 			}
 		}
-	}
 
-	function voiceAssignmentLabel(index:Int, explicitIndex:Int):String
-	{
-		if (index < 0 || index >= voiceFileNames.length)
-			return "NONE";
-
-		return (explicitIndex < 0 ? "AUTO " : "") + voiceFileNames[index];
+		refreshSnapButtons();
 	}
 
 	function handleAudioClick(mouseX:Float, mouseY:Float):Bool
 	{
+		for (i in 0...snapButtons.length)
+		{
+			var button = snapButtons[i];
+
+			if (mouseX < button.x || mouseX > button.x + button.w || mouseY < button.y || mouseY > button.y + button.h)
+				continue;
+
+			snapIndex = i;
+			refreshInfo();
+			refreshHoverText();
+			setStatus('SNAP SET TO ${SNAP_LABELS[i]}', 0xFF66CCFF);
+			return true;
+		}
+
 		for (row in audioRows)
 		{
 			if (mouseX < row.x || mouseX > row.x + row.w || mouseY < row.y || mouseY > row.y + row.h)
@@ -1040,10 +1099,8 @@ class ChartEditorState extends FlxState
 					updateAudioVolumes();
 					refreshAudioTexts();
 					setStatus(voicesMuted ? "VOICES MUTED" : "VOICES ON", 0xFF66CCFF);
-				case "player":
-					cycleVoiceAssignment(true);
-				case "opponent":
-					cycleVoiceAssignment(false);
+				case "assign":
+					openVoicePanel();
 			}
 
 			return true;
@@ -1052,117 +1109,262 @@ class ChartEditorState extends FlxState
 		return false;
 	}
 
-	function cycleVoiceAssignment(player:Bool):Void
+	function openVoicePanel():Void
 	{
+		if (chartData == null || chartData.strumLines.length == 0)
+		{
+			setStatus("NO STRUMLINES TO ASSIGN", 0xFFFFAA33);
+			return;
+		}
+
 		if (voiceFileNames.length == 0)
 		{
 			setStatus("NO VOICE CHANNELS FOUND", 0xFFFFAA33);
 			return;
 		}
 
-		var current = resolvedVoiceIndex(player);
-		var next = current + 1;
-
-		if (next >= voiceFileNames.length)
-			next = -1;
-
-		assignVoice(player, next);
+		voicePanelOpen = true;
+		voicePanelStage = 0;
+		voicePanelLine = -1;
+		refreshVoicePanel();
 	}
 
-	function assignVoice(player:Bool, index:Int):Void
+	function closeVoicePanel():Void
 	{
-		if (voiceFileNames.length == 0)
+		voicePanelOpen = false;
+		voicePanelStage = 0;
+		voicePanelLine = -1;
+		clearVoicePanelObjects();
+	}
+
+	function clearVoicePanelObjects():Void
+	{
+		for (row in voicePanelRows)
+			remove(row.text, true);
+
+		voicePanelRows = [];
+
+		if (voicePanelTitle != null)
+		{
+			remove(voicePanelTitle, true);
+			voicePanelTitle = null;
+		}
+
+		if (voicePanelBackground != null)
+		{
+			remove(voicePanelBackground, true);
+			voicePanelBackground = null;
+		}
+	}
+
+	function refreshVoicePanel():Void
+	{
+		clearVoicePanelObjects();
+
+		if (!voicePanelOpen || chartData == null)
 			return;
 
-		if (index >= voiceFileNames.length)
-			index = -1;
+		var x = LEFT_PANEL_X + 4;
+		var y = 286;
+		var w = PANEL_W - 8;
+		var h = 246;
 
-		if (player)
-			playerVoiceIndex = index;
-		else
-			opponentVoiceIndex = index;
+		voicePanelBackground = new FlxSprite(x, y);
+		voicePanelBackground.makeGraphic(Std.int(w), Std.int(h), FlxColor.WHITE);
+		voicePanelBackground.color = 0xFF080B12;
+		voicePanelBackground.alpha = 0.97;
+		add(voicePanelBackground);
 
-		var suffix = index < 0 ? "" : voiceSuffix(voiceFileNames[index]);
+		var titleTextValue = voicePanelStage == 0 ? "ASSIGN VOICES - SELECT STRUMLINE" : 'LINE $voicePanelLine - SELECT VOICE';
+		voicePanelTitle = new FlxText(x + 8, y + 8, w - 16, titleTextValue, 11);
+		voicePanelTitle.color = 0xFF88AAFF;
+		add(voicePanelTitle);
 
-		if (chartData != null)
+		var rowX = x + 8;
+		var rowW = w - 16;
+		var rowY:Float = y + 30;
+		var rowH = 20.0;
+
+		if (voicePanelStage == 0)
 		{
-			if (player)
-				chartData.playerVocalsSuffix = suffix;
-			else
-				chartData.opponentVocalsSuffix = suffix;
+			for (line in chartData.strumLines)
+			{
+				var text = '${line.index}  ${line.label()}  ${line.primaryCharacter()}  ->  ${voiceFileNameForLine(line.index)}';
+				addVoicePanelRow('line:${line.index}', rowX, rowY, rowW, rowH, text);
+				rowY += rowH;
+			}
 		}
+		else
+		{
+			addVoicePanelRow("auto", rowX, rowY, rowW, rowH, "AUTO (MATCH SUFFIX / CHARACTER)");
+			rowY += rowH;
+
+			for (i in 0...voiceFileNames.length)
+			{
+				addVoicePanelRow('file:$i', rowX, rowY, rowW, rowH, voiceFileNames[i]);
+				rowY += rowH;
+			}
+		}
+	}
+
+	function addVoicePanelRow(key:String, x:Float, y:Float, w:Float, h:Float, label:String):Void
+	{
+		var text = new FlxText(x, y, w, label, 10);
+		text.color = 0xFFB8B8CC;
+		text.wordWrap = false;
+		add(text);
+		voicePanelRows.push({key: key, x: x, y: y - 1, w: w, h: h, text: text});
+	}
+
+	function handleVoicePanelClick(mouseX:Float, mouseY:Float):Bool
+	{
+		if (!voicePanelOpen)
+			return false;
+
+		var x = LEFT_PANEL_X + 4;
+		var y = 286;
+		var w = PANEL_W - 8;
+		var h = 246;
+
+		if (mouseX < x || mouseX > x + w || mouseY < y || mouseY > y + h)
+		{
+			closeVoicePanel();
+			return false;
+		}
+
+		for (row in voicePanelRows)
+		{
+			if (mouseX < row.x || mouseX > row.x + row.w || mouseY < row.y || mouseY > row.y + row.h)
+				continue;
+
+			if (row.key == "auto")
+			{
+				assignVoiceForLine(voicePanelLine, -1);
+			}
+			else if (row.key.indexOf("line:") == 0)
+			{
+				voicePanelLine = Std.parseInt(row.key.substr(5));
+				voicePanelStage = 1;
+				refreshVoicePanel();
+			}
+			else if (row.key.indexOf("file:") == 0)
+			{
+				assignVoiceForLine(voicePanelLine, Std.parseInt(row.key.substr(5)));
+			}
+
+			return true;
+		}
+
+		return true;
+	}
+
+	function assignVoiceForLine(lineIndex:Int, voiceIndex:Int):Void
+	{
+		if (chartData == null)
+			return;
+
+		var data = findStrumLineData(lineIndex);
+
+		if (data == null)
+			return;
+
+		if (voiceIndex < 0 || voiceIndex >= voiceFileNames.length)
+		{
+			voiceAssignments.remove(lineIndex);
+			data.vocalsSuffix = "";
+		}
+		else
+		{
+			voiceAssignments.set(lineIndex, voiceIndex);
+			data.vocalsSuffix = voiceSuffix(voiceFileNames[voiceIndex]);
+		}
+
+		if (data.isPlayer)
+			chartData.playerVocalsSuffix = data.vocalsSuffix;
+		else if (data.isOpponent)
+			chartData.opponentVocalsSuffix = data.vocalsSuffix;
 
 		updateAudioVolumes();
 		refreshAudioTexts();
-		markDirty(player ? 'PLAYER VOICE ${index < 0 ? "AUTO" : voiceFileNames[index]}' : 'OPPONENT VOICE ${index < 0 ? "AUTO" : voiceFileNames[index]}');
+		refreshVoicePanel();
+		markDirty('VOICE LINE $lineIndex: ${voiceIndex < 0 ? "AUTO" : voiceFileNames[voiceIndex]}');
 	}
 
-	function resolvedVoiceIndex(player:Bool):Int
+	function findStrumLineData(index:Int):StrumLineData
+	{
+		if (chartData == null)
+			return null;
+
+		for (data in chartData.strumLines)
+		{
+			if (data.index == index)
+				return data;
+		}
+
+		return null;
+	}
+
+	function resolvedVoiceIndexForLine(lineIndex:Int):Int
 	{
 		if (voiceFileNames.length == 0)
 			return -1;
 
-		var explicit = player ? playerVoiceIndex : opponentVoiceIndex;
-
-		if (explicit >= 0 && explicit < voiceFileNames.length)
-			return explicit;
-
-		var suffix = chartData == null ? "" : (player ? chartData.playerVocalsSuffix : chartData.opponentVocalsSuffix);
-
-		if (suffix != null && suffix != "")
+		if (voiceAssignments.exists(lineIndex))
 		{
-			var normalized = normalizeVoiceSuffix(suffix);
+			var explicit = voiceAssignments.get(lineIndex);
 
+			if (explicit >= 0 && explicit < voiceFileNames.length)
+				return explicit;
+		}
+
+		var data = findStrumLineData(lineIndex);
+
+		if (data == null)
+			return 0;
+
+		var suffix = normalizeVoiceSuffix(data.vocalsSuffix);
+
+		if (suffix != "")
+		{
 			for (i in 0...voiceFileNames.length)
 			{
-				if (normalizeVoiceSuffix(voiceSuffix(voiceFileNames[i])) == normalized)
+				if (normalizeVoiceSuffix(voiceSuffix(voiceFileNames[i])) == suffix)
 					return i;
 			}
 		}
 
-		return autoVoiceIndex(player);
-	}
+		var character = data.primaryCharacter().toLowerCase();
 
-	function autoVoiceIndex(player:Bool):Int
-	{
+		for (i in 0...voiceFileNames.length)
+		{
+			if (normalizeVoiceSuffix(voiceSuffix(voiceFileNames[i])).indexOf(character) >= 0)
+				return i;
+		}
+
 		var song = currentSong();
-		var needles:Array<String> = [];
-
-		if (chartData != null)
-			needles.push(player ? chartData.playerCharacter : chartData.opponentCharacter);
-
-		if (!player && chartData != null)
-			needles.push(chartData.gfVersion);
 
 		if (song != null)
-			needles.push(song.folder);
-
-		for (needle in needles)
 		{
-			if (needle == null || needle == "")
-				continue;
-
-			var lower = needle.toLowerCase();
+			var folder = song.folder.toLowerCase();
 
 			for (i in 0...voiceFileNames.length)
 			{
-				if (voiceFileNames[i].toLowerCase().indexOf(lower) >= 0)
-					return i;
-			}
-		}
-
-		if (!player && voiceFileNames.length > 1)
-		{
-			var playerIndex = resolvedVoiceIndex(true);
-
-			for (i in 0...voiceFileNames.length)
-			{
-				if (i != playerIndex)
+				if (normalizeVoiceSuffix(voiceSuffix(voiceFileNames[i])).indexOf(folder) >= 0)
 					return i;
 			}
 		}
 
 		return 0;
+	}
+
+	function voiceFileNameForLine(lineIndex:Int):String
+	{
+		var index = resolvedVoiceIndexForLine(lineIndex);
+
+		if (index < 0 || index >= voiceFileNames.length)
+			return "NONE";
+
+		return voiceFileNames[index];
 	}
 
 	static function voiceSuffix(file:String):String
@@ -1193,12 +1395,26 @@ class ChartEditorState extends FlxState
 		if (audio != null)
 			audio.volume = instMuted ? 0 : 1;
 
-		var playerIndex = resolvedVoiceIndex(true);
-		var opponentIndex = resolvedVoiceIndex(false);
+		var audibleChannels:Map<Int, Bool> = new Map();
+		var hasAssignments = false;
+
+		if (!voicesMuted && chartData != null)
+		{
+			for (line in chartData.strumLines)
+			{
+				var index = resolvedVoiceIndexForLine(line.index);
+
+				if (index >= 0 && index < voiceSounds.length)
+				{
+					audibleChannels.set(index, true);
+					hasAssignments = true;
+				}
+			}
+		}
 
 		for (i in 0...voiceSounds.length)
 		{
-			var audible = !voicesMuted && (i == playerIndex || i == opponentIndex);
+			var audible = !voicesMuted && (!hasAssignments || audibleChannels.exists(i));
 			voiceSounds[i].volume = audible ? 1 : 0;
 		}
 	}
@@ -1240,6 +1456,7 @@ class ChartEditorState extends FlxState
 	{
 		snapIndex = wrapIndex(snapIndex + delta, SNAP_LABELS.length);
 		refreshInfo();
+		refreshSnapButtons();
 		refreshHoverText();
 	}
 
@@ -1270,10 +1487,31 @@ class ChartEditorState extends FlxState
 			return;
 		}
 
-		var note = new ChartNote(time, cast lane, lane, Math.max(0, sustain), isPlayer, "", -1);
+		var lineIndex = primaryStrumLineIndex(isPlayer);
+		var note = new ChartNote(time, cast lane, lane, Math.max(0, sustain), isPlayer, "", -1, lineIndex, lane);
 		chartData.notes.push(note);
+
+		var line = findStrumLineData(lineIndex);
+
+		if (line != null)
+			line.notes.push(note);
+
 		chartData.notes.sort(compareNotes);
 		markDirty('ADDED ${isPlayer ? "PLAYER" : "OPPONENT"} ${DIRECTION_NAMES[lane]} NOTE');
+	}
+
+	function primaryStrumLineIndex(isPlayer:Bool):Int
+	{
+		if (chartData != null)
+		{
+			for (data in chartData.strumLines)
+			{
+				if (data.isPlayer == isPlayer)
+					return data.index;
+			}
+		}
+
+		return -1;
 	}
 
 	function eraseNoteAt(time:Float, lane:Int, isPlayer:Bool):Void
@@ -1338,10 +1576,14 @@ class ChartEditorState extends FlxState
 
 		var best:ChartNote = null;
 		var bestDistance = tolerance;
+		var targetLine = primaryStrumLineIndex(isPlayer);
 
 		for (note in chartData.notes)
 		{
 			if (note.isPlayer != isPlayer || cast(note.direction, Int) != lane)
+				continue;
+
+			if (targetLine >= 0 && note.strumLineIndex >= 0 && note.strumLineIndex != targetLine)
 				continue;
 
 			var distance = Math.abs(note.time - time);
@@ -1590,15 +1832,17 @@ class ChartEditorState extends FlxState
 		snapText.color = 0xFF8888AA;
 		add(snapText);
 
-		toolText = new FlxText(LEFT_PANEL_X + 8, 418, PANEL_W - 16, "", 12);
+		buildSnapButtons();
+
+		toolText = new FlxText(LEFT_PANEL_X + 8, 438, PANEL_W - 16, "", 12);
 		toolText.color = 0xFF8888AA;
 		add(toolText);
 
-		sideText = new FlxText(LEFT_PANEL_X + 8, 438, PANEL_W - 16, "", 12);
+		sideText = new FlxText(LEFT_PANEL_X + 8, 458, PANEL_W - 16, "", 12);
 		sideText.color = 0xFF8888AA;
 		add(sideText);
 
-		chartStatusText = new FlxText(LEFT_PANEL_X + 8, 456, PANEL_W - 16, "", 10);
+		chartStatusText = new FlxText(LEFT_PANEL_X + 8, 476, PANEL_W - 16, "", 10);
 		chartStatusText.color = 0xFFAAAAAA;
 		chartStatusText.wordWrap = true;
 		add(chartStatusText);
@@ -2489,6 +2733,8 @@ class ChartEditorState extends FlxState
 		chart.stage = "stage";
 		chart.needsVoices = true;
 		chart.offset = 0;
+		chart.strumLines.push(new StrumLineData(0, "dad", 4, [chart.opponentCharacter]));
+		chart.strumLines.push(new StrumLineData(1, "bf", 4, [chart.playerCharacter]));
 		return chart;
 	}
 
@@ -2726,8 +2972,8 @@ class ChartEditorState extends FlxState
 
 		voiceSounds = [];
 		voiceFileNames = [];
-		playerVoiceIndex = -1;
-		opponentVoiceIndex = -1;
+		voiceAssignments = new Map();
+		closeVoicePanel();
 		instMuted = false;
 		voicesMuted = false;
 		audioWaveformPeaks = null;
@@ -3017,12 +3263,15 @@ class ChartEditorState extends FlxState
 			rawRoot = root;
 			rawSongData = nestedSong(root);
 			chartData = parsed;
+			voiceAssignments = new Map();
+			closeVoicePanel();
 			loadFailed = false;
 			chartExists = true;
 			songLength = computeSongLength();
 			chartTime = clamp(chartTime, 0, songLength);
 			selectedEventIndex = -1;
 			eventListOffset = 0;
+			updateAudioVolumes();
 			refreshAll();
 
 			if (wasPlaying)
@@ -3095,64 +3344,76 @@ class ChartEditorState extends FlxState
 
 	function writeStrumLines(root:Dynamic, songData:Dynamic):Void
 	{
+		if (chartData == null)
+			return;
+
 		var rawStrumLines:Dynamic = Reflect.field(songData, "strumLines");
 
 		if (!Std.isOfType(rawStrumLines, Array))
 			rawStrumLines = Reflect.field(root, "strumLines");
 
-		var lines:Array<Dynamic> = Std.isOfType(rawStrumLines, Array) ? cast rawStrumLines : [];
+		var existing:Array<Dynamic> = Std.isOfType(rawStrumLines, Array) ? cast rawStrumLines : [];
+		var lines:Array<Dynamic> = [];
+
+		for (i in 0...chartData.strumLines.length)
+		{
+			var data = chartData.strumLines[i];
+			var raw:Dynamic = i < existing.length && Reflect.isObject(existing[i]) ? existing[i] : createStrumLine(data.isPlayer ? "bf" : "dad");
+
+			Reflect.setField(raw, "keyCount", data.keyCount);
+			Reflect.setField(raw, "position", data.position);
+			Reflect.setField(raw, "characters", data.characters.copy());
+			Reflect.setField(raw, "vocalsSuffix", data.vocalsSuffix);
+			Reflect.setField(raw, "strumScale", data.strumScale);
+			Reflect.setField(raw, "visible", data.visible);
+			Reflect.setField(raw, "scrollSpeed", data.scrollSpeed);
+
+			if (data.strumLinePos >= 0)
+				Reflect.setField(raw, "strumLinePos", data.strumLinePos);
+
+			if (data.keys.length > 0)
+				Reflect.setField(raw, "keys", data.keys.copy());
+
+			var notes:Array<Dynamic> = [];
+
+			for (note in chartData.notes)
+			{
+				var noteLineIndex = note.strumLineIndex;
+
+				if (noteLineIndex < 0)
+					noteLineIndex = primaryStrumLineIndex(note.isPlayer);
+
+				if (noteLineIndex != data.index)
+					continue;
+
+				var lane = note.lane >= 0 ? note.lane : cast(note.direction, Int);
+				notes.push({id: lane, sLen: note.sustainLength, time: note.time, type: noteTypeValue(note.noteType)});
+			}
+
+			notes.sort(compareDynamicNotes);
+			Reflect.setField(raw, "notes", notes);
+			lines.push(raw);
+		}
 
 		if (lines.length == 0)
 			lines = createDefaultStrumLines();
 
-		var playerLine = findStrumLine(lines, true);
-		var opponentLine = findStrumLine(lines, false);
-
-		if (playerLine == null && lines.length > 0)
-			playerLine = lines[0];
-		if (opponentLine == null && lines.length > 1)
-			opponentLine = lines[1];
-		if (playerLine == null)
+		for (data in chartData.strumLines)
 		{
-			playerLine = createStrumLine("bf");
-			lines.push(playerLine);
-		}
-		if (opponentLine == null)
-		{
-			opponentLine = createStrumLine("dad");
-			lines.push(opponentLine);
-		}
-		if (playerLine == opponentLine)
-		{
-			playerLine = createStrumLine("bf");
-			lines.push(playerLine);
-		}
-
-		var playerNotes:Array<Dynamic> = [];
-		var opponentNotes:Array<Dynamic> = [];
-
-		if (chartData != null)
-		{
-			for (note in chartData.notes)
+			if (data.isPlayer)
 			{
-				var noteData:Dynamic = {id: cast(note.direction, Int), sLen: note.sustainLength, time: note.time, type: noteTypeValue(note.noteType)};
-
-				if (note.isPlayer)
-					playerNotes.push(noteData);
-				else
-					opponentNotes.push(noteData);
+				chartData.playerVocalsSuffix = data.vocalsSuffix;
+				break;
 			}
 		}
 
-		playerNotes.sort(compareDynamicNotes);
-		opponentNotes.sort(compareDynamicNotes);
-		Reflect.setField(playerLine, "notes", playerNotes);
-		Reflect.setField(opponentLine, "notes", opponentNotes);
-
-		if (chartData != null)
+		for (data in chartData.strumLines)
 		{
-			Reflect.setField(playerLine, "vocalsSuffix", chartData.playerVocalsSuffix);
-			Reflect.setField(opponentLine, "vocalsSuffix", chartData.opponentVocalsSuffix);
+			if (data.isOpponent)
+			{
+				chartData.opponentVocalsSuffix = data.vocalsSuffix;
+				break;
+			}
 		}
 
 		var target:Dynamic = songData;

@@ -38,6 +38,46 @@ class NoteDetector
 		return closest;
 	}
 
+	public function findClosestNoteForLane(notes:Array<Note>, strumLineIndex:Int, lane:Int, songTime:Float):Null<Note>
+	{
+		var closest:Note = null;
+		var closestDistance:Float = windows.missWindow;
+
+		for (note in notes)
+		{
+			if (note.hit || note.strumLineIndex != strumLineIndex || note.lane != lane)
+				continue;
+
+			var distance = Math.abs(note.time - songTime);
+
+			if (distance <= closestDistance)
+			{
+				closest = note;
+				closestDistance = distance;
+			}
+		}
+
+		return closest;
+	}
+
+	public function hitNoteForLane(notes:Array<Note>, strumLineIndex:Int, lane:Int, songTime:Float):Null<HitResult>
+	{
+		var note = findClosestNoteForLane(notes, strumLineIndex, lane, songTime);
+
+		if (note == null)
+			return null;
+
+		var judgment = judge(note.time, songTime);
+		note.hit = true;
+		note.judgment = judgment;
+
+		return {
+			note: note,
+			judgment: judgment,
+			offset: songTime - note.time
+		};
+	}
+
 	public function hitNote(notes:Array<Note>, direction:NoteDirection, songTime:Float):Null<HitResult>
 	{
 		var note = findClosestNote(notes, direction, songTime);

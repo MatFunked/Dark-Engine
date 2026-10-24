@@ -5,6 +5,7 @@ import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.graphics.frames.FlxAtlasFrames;
+import flixel.input.keyboard.FlxKey;
 import flixel.text.FlxText;
 import flixel.text.FlxText.FlxTextAlign;
 import flixel.tweens.FlxEase;
@@ -15,10 +16,10 @@ import audio.SongAudio;
 import chart.ChartLoader;
 import chart.ChartSection;
 import chart.FNFChart;
+import chart.StrumLineData;
 import events.SongEventManager;
 import graphics.SparrowCharacter;
 import graphics.SparrowLoader;
-import input.ArrowInput;
 import input.NoteDirection;
 import minigames.BaseMinigame;
 import minigames.MinigameContext;
@@ -27,6 +28,7 @@ import notes.Judgment;
 import notes.Note;
 import notes.NoteDetector;
 import notes.TimingWindows;
+import play.StrumLine;
 import settings.GameSettings;
 import stages.Stage;
 import ui.HealthBar;
@@ -36,6 +38,8 @@ private typedef ChartEntry =
 	var note:Note;
 	var sprite:FlxSprite;
 	var tail:FlxSprite;
+	var line:StrumLine;
+	var lane:Int;
 }
 
 class PlayState extends FlxState
@@ -87,6 +91,13 @@ class PlayState extends FlxState
 	static inline var DEBUG_PONG_TIME:Float = 8;
 	static inline var DEBUG_UNDERTALE_TIME:Float = 6;
 
+	static var EXTRA_KEY_POOL:Array<FlxKey> = [
+		FlxKey.A, FlxKey.S, FlxKey.D, FlxKey.F, FlxKey.G, FlxKey.H,
+		FlxKey.J, FlxKey.K, FlxKey.L, FlxKey.SEMICOLON, FlxKey.QUOTE, FlxKey.Z,
+		FlxKey.X, FlxKey.C, FlxKey.V, FlxKey.B, FlxKey.N, FlxKey.M,
+		FlxKey.COMMA, FlxKey.PERIOD, FlxKey.NUMPADONE, FlxKey.NUMPADTWO, FlxKey.NUMPADTHREE, FlxKey.NUMPADFOUR
+	];
+
 	public var songFolder(default, null):String;
 	public var songDifficulty(default, null):String;
 	public var activeMinigame(default, null):BaseMinigame;
@@ -96,9 +107,8 @@ class PlayState extends FlxState
 	var songAudio:SongAudio;
 	var noteFrames:FlxAtlasFrames;
 	var stage:Stage;
-	var playerCharacter:SparrowCharacter;
-	var opponentCharacter:SparrowCharacter;
 	var girlfriendCharacter:SparrowCharacter;
+	var strumLines:Array<StrumLine> = [];
 	var songTime:Float = 0;
 	var elapsedSongTime:Float = 0;
 	var health:Float = START_HEALTH;
@@ -111,7 +121,6 @@ class PlayState extends FlxState
 	var shits:Int = 0;
 	var misses:Int = 0;
 	var loadError:String = null;
-	var arrows:ArrowInput;
 	var downscroll:Bool = false;
 	var strumLineY:Float = 50;
 	var noteOffsetMs:Float = 0;
@@ -120,12 +129,6 @@ class PlayState extends FlxState
 	var activeHolds:Array<Note> = [];
 	var chart:Array<ChartEntry> = [];
 	var opponentEntries:Array<ChartEntry> = [];
-	var playerReceptors:Array<FlxSprite> = [null, null, null, null];
-	var playerFlashTimers:Array<Float> = [0, 0, 0, 0];
-	var opponentReceptors:Array<FlxSprite> = [null, null, null, null];
-	var opponentFlashTimers:Array<Float> = [0, 0, 0, 0];
-	var laneLabels:Array<FlxText> = [];
-	var sideLabels:Array<FlxText> = [];
 	var judgmentText:FlxText;
 	var timerText:FlxText;
 	var scoreText:FlxText;
@@ -165,14 +168,7 @@ class PlayState extends FlxState
 		downscroll = GameSettings.downscroll;
 		configureScrollLayout();
 		noteOffsetMs = GameSettings.noteOffsetMs;
-		arrows = new ArrowInput();
-
-		for (direction in NoteDirection.all())
-			arrows.bind(direction, [GameSettings.getKey(direction)]);
-
 		detector = new NoteDetector(new TimingWindows());
-
-		buildLanes();
 
 		try
 		{
@@ -244,46 +240,16 @@ class PlayState extends FlxState
 		}
 
 		updateOpponentAutoPlay();
-
-		for (direction in arrows.justPressedDirections())
-		{
-			var result = detector.hitNote(notes, direction, songTime);
-
-			if (result != null)
-			{
-				applyJudgment(result.judgment);
-				showJudgment(result.judgment, result.offset);
-
-				if (playerCharacter != null)
-					playerCharacter.sing(direction);
-
-				if (result.judgment != Judgment.MISS)
-				{
-					if (result.note.hasSustain())
-						beginSustain(result.note, songTime);
-
-					flashPlayerReceptor(direction);
-				}
-			}
-		}
-
+		updatePlayerInput();
 		updateSustains();
 
 		for (note in detector.collectMissedNotes(notes, songTime))
 		{
-			applyJudgment(Judgment.MISS);
+			applyJudgment(Judgment.MISS, note.strumLineIndex);
 			showJudgment(Judgment.MISS, songTime - note.time);
 		}
 
-		if (playerCharacter != null)
-			playerCharacter.updateCharacter(elapsed);
-
-		if (opponentCharacter != null)
-			opponentCharacter.updateCharacter(elapsed);
-
-		if (girlfriendCharacter != null)
-			girlfriendCharacter.updateCharacter(elapsed);
-
+		updateCharacters(elapsed);
 		updateNotePositions();
 		updateReceptorFlashes(elapsed);
 		updateFeedback(elapsed);
@@ -330,17 +296,50 @@ class PlayState extends FlxState
 
 	function updateMinigameBackground(elapsed:Float):Void
 	{
-		if (playerCharacter != null)
-			playerCharacter.updateCharacter(elapsed);
+		updateCharacters(elapsed);
+		updateReceptorFlashes(elapsed);
+		updateFeedback(elapsed);
+	}
 
-		if (opponentCharacter != null)
-			opponentCharacter.updateCharacter(elapsed);
+	function updateCharacters(elapsed:Float):Void
+	{
+		for (line in strumLines)
+			line.updateCharacter(elapsed);
 
 		if (girlfriendCharacter != null)
 			girlfriendCharacter.updateCharacter(elapsed);
+	}
 
-		updateReceptorFlashes(elapsed);
-		updateFeedback(elapsed);
+	function updatePlayerInput():Void
+	{
+		for (line in strumLines)
+		{
+			if (!line.isPlayer)
+				continue;
+
+			for (lane in 0...line.keyCount)
+			{
+				if (!line.justPressed(lane))
+					continue;
+
+				var result = detector.hitNoteForLane(notes, line.index, lane, songTime);
+
+				if (result == null)
+					continue;
+
+				applyJudgment(result.judgment, line.index);
+				showJudgment(result.judgment, result.offset);
+				line.sing(result.note.direction);
+
+				if (result.judgment != Judgment.MISS)
+				{
+					if (result.note.hasSustain())
+						beginSustain(result.note, songTime);
+
+					flashReceptor(line, lane);
+				}
+			}
+		}
 	}
 
 	public function pauseSong():Void
@@ -432,23 +431,20 @@ class PlayState extends FlxState
 
 	function setRhythmControlsVisible(visible:Bool):Void
 	{
-		for (receptor in playerReceptors)
+		for (line in strumLines)
 		{
-			if (receptor != null)
-				receptor.visible = visible;
+			for (receptor in line.receptors)
+			{
+				if (receptor != null)
+					receptor.visible = visible;
+			}
+
+			for (label in line.labelTexts)
+				label.visible = visible;
+
+			if (line.sideLabel != null)
+				line.sideLabel.visible = visible;
 		}
-
-		for (receptor in opponentReceptors)
-		{
-			if (receptor != null)
-				receptor.visible = visible;
-		}
-
-		for (label in laneLabels)
-			label.visible = visible;
-
-		for (label in sideLabels)
-			label.visible = visible;
 	}
 
 	function hideNoteSprites():Void
@@ -541,46 +537,168 @@ class PlayState extends FlxState
 		FlxG.switchState(new ResultsState(songTitle, songDifficulty, score, finalAccuracy, misses, sicks, goods, bads, shits));
 	}
 
-	function buildLanes():Void
+	function buildRuntimeStrumLines():Void
 	{
-		var directions = NoteDirection.all();
-		var labels = ["LEFT", "DOWN", "UP", "RIGHT"];
-		var labelY = strumLineY + STRUM_LABEL_OFFSET;
-		var sideLabelY = strumLineY + STRUM_SIDE_LABEL_OFFSET;
+		strumLines = [];
 
-		for (isPlayer in [false, true])
+		if (chartData == null)
+			return;
+
+		var visibleLines:Array<StrumLineData> = [];
+
+		for (data in chartData.strumLines)
 		{
-			var receptors = isPlayer ? playerReceptors : opponentReceptors;
+			if (data != null && data.visible)
+				visibleLines.push(data);
+		}
 
-			for (i in 0...directions.length)
+		if (visibleLines.length == 0)
+			return;
+
+		var playerTotal = 0;
+		var opponentTotal = 0;
+
+		for (data in visibleLines)
+		{
+			if (data.isPlayer)
+				playerTotal++;
+			else if (data.isOpponent)
+				opponentTotal++;
+		}
+
+		var playerSeen = 0;
+		var opponentSeen = 0;
+		var extraSeen = 0;
+
+		for (i in 0...visibleLines.length)
+		{
+			var data = visibleLines[i];
+			var line = new StrumLine(data);
+			line.baseReceptorColor = line.isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
+
+			if (line.isPlayer)
 			{
-				var direction = directions[i];
-				var x = laneCenter(direction, isPlayer);
-
-				var receptor = new FlxSprite(x - 32);
-				receptor.makeGraphic(64, 64, FlxColor.WHITE);
-				receptor.y = strumLineY - receptor.height * 0.5;
-				receptor.color = isPlayer ? PLAYER_RECEPTOR_COLOR : OPPONENT_RECEPTOR_COLOR;
-				bindToHud(receptor);
-				add(receptor);
-
-				receptors[cast(direction, Int)] = receptor;
-
-				var label = new FlxText(x - 50, labelY, 100, labels[i], 14);
-				label.alignment = FlxTextAlign.CENTER;
-				label.color = isPlayer ? FlxColor.GRAY : 0xFF555566;
-				bindToHud(label);
-				add(label);
-				laneLabels.push(label);
+				playerSeen++;
+				line.displayLabel = playerTotal > 1 ? 'PLAYER $playerSeen' : 'PLAYER';
+			}
+			else if (line.isOpponent)
+			{
+				opponentSeen++;
+				line.displayLabel = opponentTotal > 1 ? 'OPPONENT $opponentSeen' : 'OPPONENT';
+			}
+			else
+			{
+				extraSeen++;
+				line.displayLabel = 'EXTRA $extraSeen';
 			}
 
-			var sideLabel = new FlxText(groupCenter(isPlayer) - 80, sideLabelY, 160, isPlayer ? "PLAYER" : "OPPONENT", 14);
-			sideLabel.alignment = FlxTextAlign.CENTER;
-			sideLabel.color = isPlayer ? 0xFF88AAFF : 0xFF887788;
-			bindToHud(sideLabel);
-			add(sideLabel);
-			sideLabels.push(sideLabel);
+			configureLineLayout(line, i, visibleLines.length);
+			configureLineKeys(line, line.isPlayer ? playerSeen - 1 : -1);
+			buildLineVisuals(line);
+			strumLines.push(line);
 		}
+	}
+
+	function configureLineLayout(line:StrumLine, index:Int, count:Int):Void
+	{
+		var groupWidth = Math.min(line.keyCount * LANE_WIDTH, FlxG.width / Math.max(1, count) - 40);
+		line.laneWidth = groupWidth / line.keyCount;
+		line.baseY = strumLineY;
+
+		if (line.data.strumLinePos >= 0 && line.data.strumLinePos <= 1)
+		{
+			line.centerX = FlxG.width * line.data.strumLinePos;
+		}
+		else if (count == 2 && line.isPlayer)
+		{
+			line.centerX = stage != null && stage.bfPosition != null ? stage.bfPosition.x : FlxG.width * 0.72;
+		}
+		else if (count == 2 && line.isOpponent)
+		{
+			line.centerX = stage != null && stage.dadPosition != null ? stage.dadPosition.x : FlxG.width * 0.28;
+		}
+		else
+		{
+			line.centerX = FlxG.width * (index + 0.5) / count;
+		}
+	}
+
+	function configureLineKeys(line:StrumLine, playerOrdinal:Int):Void
+	{
+		if (!line.isPlayer)
+			return;
+
+		if (line.data.keys.length > 0)
+		{
+			for (lane in 0...line.keyCount)
+			{
+				if (lane >= line.data.keys.length)
+					break;
+
+				var text = line.data.keys[lane];
+				var key = FlxKey.fromString(text);
+
+				if (key == FlxKey.NONE)
+				{
+					var code = Std.parseInt(text);
+
+					if (code != null)
+						key = cast code;
+				}
+
+				if (key != FlxKey.NONE)
+					line.setKey(lane, key);
+			}
+
+			return;
+		}
+
+		var directions = NoteDirection.all();
+		var offset = playerOrdinal == 0 ? 0 : 4 + (playerOrdinal - 1) * 6;
+
+		for (lane in 0...line.keyCount)
+		{
+			if (playerOrdinal == 0 && lane < directions.length)
+				line.setKey(lane, GameSettings.getKey(directions[lane]));
+			else
+				line.setKey(lane, EXTRA_KEY_POOL[(offset + lane) % EXTRA_KEY_POOL.length]);
+		}
+	}
+
+	function buildLineVisuals(line:StrumLine):Void
+	{
+		var labelNames = ["LEFT", "DOWN", "UP", "RIGHT"];
+		var labelY = strumLineY + STRUM_LABEL_OFFSET;
+		var sideLabelY = strumLineY + STRUM_SIDE_LABEL_OFFSET;
+		var receptorSize = Math.max(28, Math.min(64, line.laneWidth - 6));
+
+		for (lane in 0...line.keyCount)
+		{
+			var x = line.laneCenter(lane);
+			var receptor = new FlxSprite(x - receptorSize * 0.5);
+			receptor.makeGraphic(Std.int(receptorSize), Std.int(receptorSize), FlxColor.WHITE);
+			receptor.y = strumLineY - receptor.height * 0.5;
+			receptor.color = line.baseReceptorColor;
+			bindToHud(receptor);
+			add(receptor);
+			line.receptors[lane] = receptor;
+
+			var directionName = labelNames[lane % labelNames.length];
+			var label = new FlxText(x - line.laneWidth * 0.5, labelY, line.laneWidth, directionName, line.laneWidth < 60 ? 11 : 14);
+			label.alignment = FlxTextAlign.CENTER;
+			label.color = line.isPlayer ? FlxColor.GRAY : 0xFF555566;
+			bindToHud(label);
+			add(label);
+			line.labelTexts.push(label);
+		}
+
+		var groupWidth = line.laneWidth * line.keyCount;
+		var sideLabel = new FlxText(line.centerX - groupWidth * 0.5, sideLabelY, groupWidth, line.label(), 14);
+		sideLabel.alignment = FlxTextAlign.CENTER;
+		sideLabel.color = line.isPlayer ? 0xFF88AAFF : 0xFF887788;
+		bindToHud(sideLabel);
+		add(sideLabel);
+		line.sideLabel = sideLabel;
 	}
 
 	function loadLevel():Void
@@ -591,44 +709,161 @@ class PlayState extends FlxState
 		songEventManager = new SongEventManager(chartData.events, chartData.bpm, FlxG.camera, hudCamera, triggerMinigameEvent);
 		stage = new Stage(chartData.stage);
 		insert(0, stage);
-		buildCharacters();
 
 		noteFrames = SparrowLoader.load(NOTE_IMAGE_PATH, NOTE_XML_PATH);
 
 		if (noteFrames == null)
 			FlxG.log.warn("Missing note atlas; using rectangular notes");
 
+		buildRuntimeStrumLines();
+		buildCharacters();
 		buildChart();
+		loadSongAudio();
+	}
 
+	function loadSongAudio():Void
+	{
 		var audioPath = 'assets/songs/$songFolder/song';
-		var singleVoicesPath = '${audioPath}/Voices.ogg';
+		var voiceFiles = discoverVoiceFiles(audioPath);
+		var voicePaths:Array<String> = [];
+		var assignments:Map<Int, Int> = new Map();
+		var usedFiles:Map<String, Bool> = new Map();
+
+		for (line in strumLines)
+		{
+			var file = resolveVoiceFile(line, voiceFiles, usedFiles);
+
+			if (file == "")
+				continue;
+
+			usedFiles.set(file, true);
+
+			var channel = voicePaths.indexOf(file);
+
+			if (channel < 0)
+			{
+				channel = voicePaths.length;
+				voicePaths.push(file);
+			}
+
+			line.voiceChannel = channel;
+			assignments.set(line.index, channel);
+		}
+
 		songAudio = new SongAudio();
-
-		if (Assets.exists(singleVoicesPath))
-		{
-			songAudio.loadSingleVoices('${audioPath}/Inst.ogg', singleVoicesPath);
-		}
-		else
-		{
-			var opponentSuffix = chartData.opponentVocalsSuffix;
-			var playerSuffix = chartData.playerVocalsSuffix;
-
-			if (opponentSuffix == "" || playerSuffix == "")
-				throw 'Voice tracks not found for $songFolder';
-
-			songAudio.load('${audioPath}/Inst.ogg', '${audioPath}/Voices${opponentSuffix}.ogg', '${audioPath}/Voices${playerSuffix}.ogg');
-		}
-
+		songAudio.loadSong('$audioPath/Inst.ogg', voicePaths, assignments);
 		songAudio.play();
+	}
+
+	function discoverVoiceFiles(audioPath:String):Array<String>
+	{
+		var files:Array<String> = [];
+		var prefix = '$audioPath/';
+
+		for (path in Assets.list())
+		{
+			if (!StringTools.startsWith(path, prefix))
+				continue;
+
+			var file = path.substr(prefix.length).toLowerCase();
+
+			if (!StringTools.endsWith(file, ".ogg") || !StringTools.startsWith(file, "voices"))
+				continue;
+
+			var fullPath = prefix + path.substr(prefix.length);
+
+			if (files.indexOf(fullPath) < 0)
+				files.push(fullPath);
+		}
+
+		files.sort(function(a, b) return a < b ? -1 : a > b ? 1 : 0);
+		return files;
+	}
+
+	function resolveVoiceFile(line:StrumLine, files:Array<String>, usedFiles:Map<String, Bool>):String
+	{
+		if (files.length == 0)
+			return "";
+
+		var wantedSuffix = normalizeVoiceSuffix(line.vocalsSuffix);
+
+		if (wantedSuffix != "")
+		{
+			for (file in files)
+			{
+				if (normalizeVoiceSuffix(voiceSuffixFromPath(file)) == wantedSuffix)
+					return file;
+			}
+		}
+
+		var character = line.primaryCharacter().toLowerCase();
+
+		for (file in files)
+		{
+			if (normalizeVoiceSuffix(voiceSuffixFromPath(file)).indexOf(character) >= 0)
+				return file;
+		}
+
+		for (file in files)
+		{
+			if (normalizeVoiceSuffix(voiceSuffixFromPath(file)).indexOf(songFolder.toLowerCase()) >= 0)
+				return file;
+		}
+
+		if (line.isOpponent && chartData.gfVersion != null && chartData.gfVersion != "")
+		{
+			var gf = chartData.gfVersion.toLowerCase();
+
+			for (file in files)
+			{
+				if (normalizeVoiceSuffix(voiceSuffixFromPath(file)).indexOf(gf) >= 0)
+					return file;
+			}
+		}
+
+		if (files.length == 1)
+			return files[0];
+
+		for (file in files)
+		{
+			if (!usedFiles.exists(file))
+				return file;
+		}
+
+		return files[0];
+	}
+
+	static function voiceSuffixFromPath(path:String):String
+	{
+		var name = path;
+
+		if (name.lastIndexOf("/") >= 0)
+			name = name.substr(name.lastIndexOf("/") + 1);
+
+		if (name.lastIndexOf(".") >= 0)
+			name = name.substr(0, name.lastIndexOf("."));
+
+		if (StringTools.startsWith(name.toLowerCase(), "voices"))
+			name = name.substr(6);
+
+		return name;
+	}
+
+	static function normalizeVoiceSuffix(suffix:String):String
+	{
+		if (suffix == null)
+			return "";
+
+		var normalized = StringTools.trim(suffix.toLowerCase());
+
+		while (StringTools.startsWith(normalized, "-") || StringTools.startsWith(normalized, "_"))
+			normalized = normalized.substr(1);
+
+		return normalized;
 	}
 
 	function buildCharacters():Void
 	{
-		var opponentX = stage == null || stage.dadPosition == null ? FlxG.width * 0.28 : stage.dadPosition.x;
-		var opponentY = stage == null || stage.dadPosition == null ? FlxG.height * 0.13 : stage.dadPosition.y;
-		var playerX = stage == null || stage.bfPosition == null ? FlxG.width * 0.72 : stage.bfPosition.x;
-		var playerY = stage == null || stage.bfPosition == null ? FlxG.height * 0.13 : stage.bfPosition.y;
-
 		var insertIndex = 1;
 
 		if (stage != null && stage.gfPosition != null && hasCharacterAssets(chartData.gfVersion))
@@ -638,14 +873,30 @@ class PlayState extends FlxState
 			insert(insertIndex++, girlfriendCharacter);
 		}
 
-		opponentCharacter = new SparrowCharacter(chartData.opponentCharacter, false);
-		playerCharacter = new SparrowCharacter(chartData.playerCharacter, true);
+		var playerSeen = 0;
+		var opponentSeen = 0;
 
-		opponentCharacter.placeAt(opponentX, opponentY);
-		playerCharacter.placeAt(playerX, playerY);
+		for (line in strumLines)
+		{
+			var characterName = line.primaryCharacter();
+			var character = new SparrowCharacter(characterName, line.isPlayer);
+			var y = FlxG.height * 0.13;
 
-		insert(insertIndex++, opponentCharacter);
-		insert(insertIndex++, playerCharacter);
+			if (line.isPlayer)
+			{
+				playerSeen++;
+				y = stage != null && stage.bfPosition != null ? stage.bfPosition.y : y;
+			}
+			else if (line.isOpponent)
+			{
+				opponentSeen++;
+				y = stage != null && stage.dadPosition != null ? stage.dadPosition.y : y;
+			}
+
+			character.placeAt(line.centerX, y);
+			line.character = character;
+			insert(insertIndex++, character);
+		}
 	}
 
 	static function hasCharacterAssets(characterName:String):Bool
@@ -662,17 +913,30 @@ class PlayState extends FlxState
 	{
 		for (chartNote in chartData.notes)
 		{
-			var note = new Note(chartNote.time, chartNote.direction, chartNote.sustainLength);
-			var sprite = createNoteSprite(chartNote.direction, chartNote.isPlayer);
+			var line = findRuntimeLine(chartNote.strumLineIndex);
+
+			if (line == null)
+				line = fallbackRuntimeLine(chartNote.isPlayer);
+
+			if (line == null)
+				continue;
+
+			var lane = chartNote.lane;
+
+			if (lane < 0 || lane >= line.keyCount)
+				lane = cast(chartNote.direction, Int) % line.keyCount;
+
+			var note = new Note(chartNote.time, chartNote.direction, chartNote.sustainLength, line.index, lane);
+			var sprite = createNoteSprite(line, lane);
 			sprite.alpha = chartNote.isPlayer ? 1.0 : 0.5;
-			var tail = chartNote.sustainLength > 0 ? createSustainSprite(chartNote.direction, chartNote.isPlayer) : null;
+			var tail = chartNote.sustainLength > 0 ? createSustainSprite(line, lane) : null;
 
 			if (tail != null)
 				add(tail);
 
 			add(sprite);
 
-			var entry:ChartEntry = {note: note, sprite: sprite, tail: tail};
+			var entry:ChartEntry = {note: note, sprite: sprite, tail: tail, line: line, lane: lane};
 			chart.push(entry);
 
 			if (chartNote.isPlayer)
@@ -682,9 +946,32 @@ class PlayState extends FlxState
 		}
 	}
 
-	function createNoteSprite(direction:NoteDirection, isPlayer:Bool):FlxSprite
+	function findRuntimeLine(index:Int):StrumLine
+	{
+		for (line in strumLines)
+		{
+			if (line.index == index)
+				return line;
+		}
+
+		return null;
+	}
+
+	function fallbackRuntimeLine(isPlayer:Bool):StrumLine
+	{
+		for (line in strumLines)
+		{
+			if (line.isPlayer == isPlayer)
+				return line;
+		}
+
+		return strumLines.length > 0 ? strumLines[0] : null;
+	}
+
+	function createNoteSprite(line:StrumLine, lane:Int):FlxSprite
 	{
 		var sprite = new FlxSprite();
+		var direction:NoteDirection = cast(lane % 4, NoteDirection);
 
 		if (noteFrames != null)
 		{
@@ -705,19 +992,20 @@ class PlayState extends FlxState
 			makeFallbackNote(sprite, direction);
 		}
 
-		sprite.x = laneCenter(direction, isPlayer) - sprite.width * 0.5;
+		sprite.x = line.laneCenter(lane) - sprite.width * 0.5;
 		sprite.y = -100;
 		bindToHud(sprite);
 		return sprite;
 	}
 
-	function createSustainSprite(direction:NoteDirection, isPlayer:Bool):FlxSprite
+	function createSustainSprite(line:StrumLine, lane:Int):FlxSprite
 	{
+		var direction:NoteDirection = cast(lane % 4, NoteDirection);
 		var tail = new FlxSprite();
 		tail.makeGraphic(Std.int(SUSTAIN_WIDTH), Std.int(SUSTAIN_BASE_HEIGHT), noteColor(direction));
 		tail.origin.set(0, 0);
-		tail.alpha = isPlayer ? SUSTAIN_PLAYER_ALPHA : SUSTAIN_OPPONENT_ALPHA;
-		tail.x = laneCenter(direction, isPlayer) - SUSTAIN_WIDTH * 0.5;
+		tail.alpha = line.isPlayer ? SUSTAIN_PLAYER_ALPHA : SUSTAIN_OPPONENT_ALPHA;
+		tail.x = line.laneCenter(lane) - SUSTAIN_WIDTH * 0.5;
 		tail.y = -100;
 		tail.visible = false;
 		bindToHud(tail);
@@ -1085,52 +1373,39 @@ class PlayState extends FlxState
 
 			entry.note.hit = true;
 			entry.sprite.visible = false;
-			flashOpponentReceptor(entry.note.direction);
-
-			if (opponentCharacter != null)
-				opponentCharacter.sing(entry.note.direction);
+			flashReceptor(entry.line, entry.lane);
+			entry.line.sing(entry.note.direction);
 		}
 	}
 
-	function flashPlayerReceptor(direction:NoteDirection):Void
+	function flashReceptor(line:StrumLine, lane:Int):Void
 	{
-		flashReceptor(playerReceptors, playerFlashTimers, direction);
-	}
+		if (lane < 0 || lane >= line.receptors.length)
+			return;
 
-	function flashOpponentReceptor(direction:NoteDirection):Void
-	{
-		flashReceptor(opponentReceptors, opponentFlashTimers, direction);
-	}
-
-	function flashReceptor(receptors:Array<FlxSprite>, timers:Array<Float>, direction:NoteDirection):Void
-	{
-		var index = cast(direction, Int);
-		var receptor = receptors[index];
+		var receptor = line.receptors[lane];
 
 		if (receptor == null)
 			return;
 
 		receptor.color = RECEPTOR_FLASH_COLOR;
-		timers[index] = RECEPTOR_FLASH_TIME;
+		line.flashTimers[lane] = RECEPTOR_FLASH_TIME;
 	}
 
 	function updateReceptorFlashes(elapsed:Float):Void
 	{
-		updateReceptorFlashGroup(playerReceptors, playerFlashTimers, PLAYER_RECEPTOR_COLOR, elapsed);
-		updateReceptorFlashGroup(opponentReceptors, opponentFlashTimers, OPPONENT_RECEPTOR_COLOR, elapsed);
-	}
-
-	function updateReceptorFlashGroup(receptors:Array<FlxSprite>, timers:Array<Float>, baseColor:Int, elapsed:Float):Void
-	{
-		for (i in 0...timers.length)
+		for (line in strumLines)
 		{
-			if (timers[i] <= 0)
-				continue;
+			for (lane in 0...line.flashTimers.length)
+			{
+				if (line.flashTimers[lane] <= 0)
+					continue;
 
-			timers[i] -= elapsed;
+				line.flashTimers[lane] -= elapsed;
 
-			if (timers[i] <= 0 && receptors[i] != null)
-				receptors[i].color = baseColor;
+				if (line.flashTimers[lane] <= 0 && line.receptors[lane] != null)
+					line.receptors[lane].color = line.baseReceptorColor;
+			}
 		}
 	}
 
@@ -1224,7 +1499,7 @@ class PlayState extends FlxState
 				note.sustainCompleted = true;
 				activeHolds.splice(i, 1);
 			}
-			else if (!arrows.isPressed(note.direction))
+			else if (!isNoteHeld(note))
 			{
 				cutSustain(note);
 				activeHolds.splice(i, 1);
@@ -1254,6 +1529,12 @@ class PlayState extends FlxState
 			healthBar.setHealth(health);
 	}
 
+	function isNoteHeld(note:Note):Bool
+	{
+		var line = findRuntimeLine(note.strumLineIndex);
+		return line != null && line.isPressed(note.lane);
+	}
+
 	function cutSustain(note:Note):Void
 	{
 		note.sustainActive = false;
@@ -1264,7 +1545,7 @@ class PlayState extends FlxState
 			healthBar.setHealth(health);
 
 		if (songAudio != null)
-			songAudio.setPlayerVocalsMuted(true);
+			songAudio.setStrumLineMuted(note.strumLineIndex, true);
 
 		judgmentText.text = "HOLD CUT";
 		judgmentText.color = 0xFFFF66AA;
@@ -1281,7 +1562,7 @@ class PlayState extends FlxState
 		judgmentText.alpha = Math.max(0, Math.min(1, feedbackTime * 2));
 	}
 
-	function applyJudgment(judgment:Judgment):Void
+	function applyJudgment(judgment:Judgment, strumLineIndex:Int = -1):Void
 	{
 		if (judgment == Judgment.SICK)
 		{
@@ -1317,12 +1598,12 @@ class PlayState extends FlxState
 		if (healthBar != null)
 			healthBar.setHealth(health);
 
-		if (songAudio != null)
+		if (songAudio != null && strumLineIndex >= 0)
 		{
 			if (judgment == Judgment.MISS || judgment == Judgment.SHIT)
-				songAudio.setPlayerVocalsMuted(true);
+				songAudio.setStrumLineMuted(strumLineIndex, true);
 			else if (judgment == Judgment.SICK || judgment == Judgment.GOOD)
-				songAudio.setPlayerVocalsMuted(false);
+				songAudio.setStrumLineMuted(strumLineIndex, false);
 		}
 	}
 
@@ -1356,13 +1637,4 @@ class PlayState extends FlxState
 		return strumLineY - height * 0.5 + (time - songTime) * NOTE_SPEED;
 	}
 
-	inline function groupCenter(isPlayer:Bool):Float
-	{
-		return FlxG.width * (isPlayer ? 0.72 : 0.28);
-	}
-
-	inline function laneCenter(direction:NoteDirection, isPlayer:Bool):Float
-	{
-		return groupCenter(isPlayer) + (cast(direction, Int) - 1.5) * LANE_WIDTH;
-	}
 }

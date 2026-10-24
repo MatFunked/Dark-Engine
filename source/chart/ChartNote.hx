@@ -11,9 +11,11 @@ class ChartNote
 	public var isPlayer:Bool;
 	public var noteType:String;
 	public var sectionIndex:Int;
+	public var strumLineIndex:Int;
+	public var lane:Int;
 
 	public function new(time:Float, direction:NoteDirection, rawData:Int, sustainLength:Float = 0, isPlayer:Bool = true,
-			noteType:String = "", sectionIndex:Int = -1)
+			noteType:String = "", sectionIndex:Int = -1, strumLineIndex:Int = -1, lane:Int = -1)
 	{
 		this.time = time;
 		this.direction = direction;
@@ -22,6 +24,8 @@ class ChartNote
 		this.isPlayer = isPlayer;
 		this.noteType = noteType;
 		this.sectionIndex = sectionIndex;
+		this.strumLineIndex = strumLineIndex;
+		this.lane = lane < 0 ? rawData : lane;
 	}
 
 	public inline function getEndTime():Float
